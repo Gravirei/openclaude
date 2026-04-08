@@ -321,9 +321,16 @@ function handleInteractivePermission(
   ) {
     const channelRequestId = shortRequestId(ctx.toolUseID)
     const allowedChannels = getAllowedChannels()
+    // Exclude the server that owns the tool being approved — relaying a
+    // permission prompt for server X's tool back to server X creates a
+    // circular loop (approve via channel → skill runs → next permission
+    // → relay to same channel → approve → …).
+    const toolOwnerServer = ctx.tool.mcpInfo?.serverName
     const channelClients = filterPermissionRelayClients(
       ctx.toolUseContext.getAppState().mcp.clients,
-      name => findChannelEntry(name, allowedChannels) !== undefined,
+      name =>
+        findChannelEntry(name, allowedChannels) !== undefined &&
+        name !== toolOwnerServer,
     )
 
     if (channelClients.length > 0) {
