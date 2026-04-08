@@ -59,6 +59,7 @@ const featureFlags: Record<string, boolean> = {
   VERIFICATION_AGENT: true,           // Built-in read-only agent for test/verification
   PROMPT_CACHE_BREAK_DETECTION: true, // Detect & log unexpected prompt cache invalidations
   HOOK_PROMPTS: true,                 // Allow tools to request interactive user prompts
+  KAIROS_CHANNELS: true,              // MCP channel plugins (Telegram, Discord, iMessage)
 }
 
 // ── Pre-process: replace feature() calls with boolean literals ──────
