@@ -1,11 +1,11 @@
 /**
  * Focused tests for the channel notification trust-sensitive paths:
  *   - gateChannelServer(): approved plugin, dev channel, non-allowlisted,
- *     server-kind, auto-registration, marketplace verification
+ *     server-kind, marketplace verification
  *   - findChannelEntry(): plugin vs server matching
  *
- * These validate that the OpenClaude trust model change (auto-register for
- * approved plugins, explicit opt-in for everything else) behaves correctly.
+ * These validate that the OpenClaude trust model: explicit opt-in via
+ * --channels for all entries (no auto-registration).
  */
 import {
   describe,
@@ -37,9 +37,6 @@ beforeEach(() => {
 
   mock.module('../../bootstrap/state.js', () => ({
     getAllowedChannels: () => mockAllowedChannels,
-    setAllowedChannels: (entries: ChannelEntry[]) => {
-      mockAllowedChannels = entries
-    },
   }))
 
   mock.module('./channelAllowlist.js', () => ({
@@ -171,32 +168,19 @@ describe('gateChannelServer — approved plugin path', () => {
     expect(result.action).toBe('register')
   })
 
-  test('auto-registers an approved plugin not yet in --channels', async () => {
+  test('skips an approved plugin NOT in --channels list (no auto-registration)', async () => {
     const { gateChannelServer } = await loadModule()
-    // No pre-existing channels — should auto-add
+    // Plugin is on the hardcoded allowlist but NOT in --channels
     mockAllowedChannels = []
     const result = gateChannelServer(
       'plugin:telegram:abc',
       CHANNEL_CAP,
       'telegram@claude-plugins-official',
     )
-    expect(result.action).toBe('register')
-    // Verify the entry was auto-added
-    expect(mockAllowedChannels).toHaveLength(1)
-    expect(mockAllowedChannels[0]).toEqual({
-      kind: 'plugin',
-      name: 'telegram',
-      marketplace: 'claude-plugins-official',
-    })
-  })
-
-  test('auto-registration is idempotent (does not duplicate entries)', async () => {
-    const { gateChannelServer } = await loadModule()
-    mockAllowedChannels = [
-      { kind: 'plugin', name: 'telegram', marketplace: 'claude-plugins-official' },
-    ]
-    gateChannelServer('plugin:telegram:abc', CHANNEL_CAP, 'telegram@claude-plugins-official')
-    expect(mockAllowedChannels).toHaveLength(1)
+    expect(result.action).toBe('skip')
+    expect((result as any).kind).toBe('session')
+    // Verify no auto-registration occurred
+    expect(mockAllowedChannels).toHaveLength(0)
   })
 })
 

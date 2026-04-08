@@ -13,6 +13,7 @@ import {
 import type { ChannelPermissionCallbacks } from '../../../services/mcp/channelPermissions.js'
 import {
   filterPermissionRelayClients,
+  isChannelPermissionRelayEnabled,
   shortRequestId,
   truncateForPreview,
 } from '../../../services/mcp/channelPermissions.js'
@@ -314,7 +315,7 @@ function handleInteractivePermission(
   // the subscription never fires and another racer wins. Graceful degradation
   // — the local dialog is always there as the floor.
   if (
-    true /* channels enabled */ &&
+    isChannelPermissionRelayEnabled() &&
     channelCallbacks &&
     !ctx.tool.requiresUserInteraction?.()
   ) {

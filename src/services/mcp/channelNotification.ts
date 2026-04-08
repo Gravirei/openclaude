@@ -14,10 +14,9 @@
  * OpenClaude build). Runtime gate via isChannelsEnabled() — always true
  * in OpenClaude. No OAuth or org policy requirement.
  *
- * OpenClaude auto-registration: allowlisted plugins (telegram, discord,
- * imessage, fakechat) are auto-registered when they connect — no --channels
- * flag required. Custom channels still need --channels or
- * --dangerously-load-development-channels.
+ * OpenClaude: allowlisted plugins (telegram, discord, imessage, fakechat)
+ * pass the allowlist check automatically when listed via --channels.
+ * Custom channels need --dangerously-load-development-channels.
  */
 
 import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js'
@@ -25,7 +24,6 @@ import { z } from 'zod/v4'
 import {
   type ChannelEntry,
   getAllowedChannels,
-  setAllowedChannels,
 } from '../../bootstrap/state.js'
 import { CHANNEL_TAG } from '../../constants/xml.js'
 import { lazySchema } from '../../utils/lazySchema.js'
@@ -177,12 +175,11 @@ export function findChannelEntry(
  * Gate an MCP server's channel-notification path. Caller checks
  * feature('KAIROS') || feature('KAIROS_CHANNELS') first (build-time
  * elimination). Gate order: capability → runtime gate (isChannelsEnabled) →
- * session --channels (with auto-register for allowlisted plugins) →
- * marketplace verification → allowlist.
+ * session --channels → marketplace verification → allowlist.
  *
- * OpenClaude: OAuth and org policy gates removed. Allowlisted plugins
- * (telegram, discord, etc.) auto-register without --channels. Custom
- * channels still need explicit --channels or dev-channels flag.
+ * OpenClaude: OAuth and org policy gates removed. The session allowlist
+ * (--channels flag) and capability check remain as the security boundary.
+ * Users must explicitly opt in via --channels for all channel servers.
  *
  *   skip      Not a channel server, or not allowlisted/registered.
  *             Connection stays up; handler not registered.
@@ -229,33 +226,9 @@ export function gateChannelServer(
 
   // User-level session opt-in. A server must be explicitly listed in
   // --channels to push inbound this session — protects against a trusted
-  // server surprise-adding the capability.
-  //
-  // OpenClaude auto-registration: if the server isn't in the session list
-  // but IS on the hardcoded plugin allowlist, auto-add it. This means
-  // allowlisted plugins (telegram, discord, etc.) work without --channels.
-  // Custom/non-allowlisted channels still need --channels or
-  // --dangerously-load-development-channels.
-  let entry = findChannelEntry(serverName, getAllowedChannels())
-  if (!entry && pluginSource) {
-    // Check if this plugin is on the hardcoded allowlist
-    const { name, marketplace } = parsePluginIdentifier(pluginSource)
-    if (
-      marketplace &&
-      getChannelAllowlist().some(
-        e => e.plugin === name && e.marketplace === marketplace,
-      )
-    ) {
-      // Auto-register: create a session entry so downstream gates pass
-      const autoEntry: ChannelEntry = {
-        kind: 'plugin',
-        name,
-        marketplace,
-      }
-      setAllowedChannels([...getAllowedChannels(), autoEntry])
-      entry = autoEntry
-    }
-  }
+  // server surprise-adding the capability. No auto-registration: even
+  // allowlisted plugins require explicit --channels opt-in.
+  const entry = findChannelEntry(serverName, getAllowedChannels())
   if (!entry) {
     return {
       action: 'skip',

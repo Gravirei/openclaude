@@ -23,14 +23,17 @@
  * See PR discussion 2956440848.
  */
 
+import { isChannelsEnabled } from './channelAllowlist.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 
 /**
- * Permission relay gate. OpenClaude: always enabled — the implementation
- * is complete and tested. No GrowthBook dependency.
+ * Permission relay gate. Gated behind isChannelsEnabled() so that the
+ * relay can be disabled at runtime if needed. When off, callbacks never
+ * go into AppState → interactiveHandler sees undefined → never sends →
+ * channel permission replies flow to Claude as normal chat.
  */
 export function isChannelPermissionRelayEnabled(): boolean {
-  return true
+  return isChannelsEnabled()
 }
 
 export type ChannelPermissionResponse = {

@@ -4,9 +4,9 @@
  * can be tested independently.
  *
  * Trust model: only official (non-dev) plugin entries get auto-allow, and
- * only for the minimal set of known reply/send tools. Server-kind entries,
- * dev entries, and unrecognised entries get nothing — the user must
- * approve manually.
+ * only for the reply tool (responding to inbound traffic). The broader
+ * send tool (proactive outbound) goes through the normal permission
+ * prompt. Server-kind, dev, and unrecognised entries get nothing.
  */
 import type { ChannelEntry } from '../../bootstrap/state.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
@@ -27,7 +27,7 @@ export function computeChannelAutoAllowRules(
     return []
   }
   const toolPrefix = getMcpPrefix(serverName)
-  return [`${toolPrefix}reply`, `${toolPrefix}send`]
+  return [`${toolPrefix}reply`]
 }
 
 /**

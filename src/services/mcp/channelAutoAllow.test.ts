@@ -22,17 +22,16 @@ import {
 // ---------------------------------------------------------------------------
 
 describe('computeChannelAutoAllowRules', () => {
-  test('returns reply and send rules for official plugin entry', () => {
+  test('returns reply rule for official plugin entry', () => {
     const entry: ChannelEntry = {
       kind: 'plugin',
       name: 'telegram',
       marketplace: 'claude-plugins-official',
     }
     const rules = computeChannelAutoAllowRules('plugin:telegram:abc', entry)
-    expect(rules).toHaveLength(2)
-    // Rules must contain exactly reply and send with the correct MCP prefix
+    expect(rules).toHaveLength(1)
+    // Rules must contain exactly reply with the correct MCP prefix
     expect(rules[0]).toMatch(/^mcp__.*__reply$/)
-    expect(rules[1]).toMatch(/^mcp__.*__send$/)
   })
 
   test('rules use normalised server name in prefix', () => {
@@ -44,7 +43,6 @@ describe('computeChannelAutoAllowRules', () => {
     const rules = computeChannelAutoAllowRules('plugin:telegram:abc', entry)
     // "plugin:telegram:abc" normalised: colons → underscores
     expect(rules[0]).toContain('plugin_telegram_abc')
-    expect(rules[1]).toContain('plugin_telegram_abc')
   })
 
   test('returns empty array for dev plugin entry', () => {
@@ -79,7 +77,7 @@ describe('computeChannelAutoAllowRules', () => {
     expect(rules).toEqual([])
   })
 
-  test('only produces reply and send — no broader server-level rule', () => {
+  test('only produces reply — no broader server-level rule', () => {
     const entry: ChannelEntry = {
       kind: 'plugin',
       name: 'telegram',
@@ -93,9 +91,9 @@ describe('computeChannelAutoAllowRules', () => {
       expect(parts.length).toBeGreaterThanOrEqual(3)
       expect(parts[parts.length - 1]).toBeTruthy() // non-empty tool name
     }
-    // Ensure only reply and send — not any hypothetical third tool
+    // Ensure only reply — send goes through normal permission prompt
     const toolNames = rules.map(r => r.split('__').pop())
-    expect(toolNames).toEqual(['reply', 'send'])
+    expect(toolNames).toEqual(['reply'])
   })
 })
 
@@ -141,7 +139,7 @@ describe('mergeAutoAllowRules', () => {
     }
     const rules = computeChannelAutoAllowRules('plugin:telegram:abc', entry)
     const afterFirst = mergeAutoAllowRules([], rules)!
-    expect(afterFirst).toHaveLength(2)
+    expect(afterFirst).toHaveLength(1)
 
     const afterSecond = mergeAutoAllowRules(afterFirst, rules)
     expect(afterSecond).toBeNull() // no change — idempotent
@@ -169,12 +167,12 @@ describe('mergeAutoAllowRules', () => {
     )
 
     let session = mergeAutoAllowRules([], tgRules)!
-    expect(session).toHaveLength(2)
+    expect(session).toHaveLength(1)
 
     session = mergeAutoAllowRules(session, dcRules)!
-    expect(session).toHaveLength(4)
+    expect(session).toHaveLength(2)
 
-    // All four rules should be distinct
-    expect(new Set(session).size).toBe(4)
+    // All two rules should be distinct
+    expect(new Set(session).size).toBe(2)
   })
 })
