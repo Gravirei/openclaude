@@ -241,6 +241,7 @@ import {
   ElicitRequestSchema,
   ElicitationCompleteNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js'
+import { computeChannelAutoAllowRules, mergeAutoAllowRules } from 'src/services/mcp/channelAutoAllow.js'
 import { getMcpPrefix } from 'src/services/mcp/mcpStringUtils.js'
 import {
   commandBelongsToServer,
@@ -4754,35 +4755,31 @@ function handleChannelEnable(
 
   // Only auto-allow the minimal set of known channel reply tools,
   // and only for official non-dev plugin channel entries.
-  if (entry?.kind === 'plugin' && entry?.dev !== true) {
-    const toolPrefix = getMcpPrefix(serverName)
-    const channelToolRules = [
-      `${toolPrefix}reply`,
-      `${toolPrefix}send`,
-    ]
-    setAppState(prev => {
-      const sessionRules =
-        prev.toolPermissionContext.alwaysAllowRules.session ?? []
-      const nextRules = channelToolRules.filter(
-        rule => !sessionRules.includes(rule),
-      )
-      if (nextRules.length === 0) return prev
-      return {
-        ...prev,
-        toolPermissionContext: {
-          ...prev.toolPermissionContext,
-          alwaysAllowRules: {
-            ...prev.toolPermissionContext.alwaysAllowRules,
-            session: [...sessionRules, ...nextRules],
+  {
+    const autoRules = computeChannelAutoAllowRules(serverName, entry)
+    if (autoRules.length > 0) {
+      setAppState(prev => {
+        const sessionRules =
+          prev.toolPermissionContext.alwaysAllowRules.session ?? []
+        const merged = mergeAutoAllowRules(sessionRules, autoRules)
+        if (!merged) return prev
+        return {
+          ...prev,
+          toolPermissionContext: {
+            ...prev.toolPermissionContext,
+            alwaysAllowRules: {
+              ...prev.toolPermissionContext.alwaysAllowRules,
+              session: merged,
+            },
           },
-        },
-      }
-    })
-  } else {
-    logMCPDebug(
-      serverName,
-      'Skipping channel tool auto-allow for non-plugin or dev entry',
-    )
+        }
+      })
+    } else {
+      logMCPDebug(
+        serverName,
+        'Skipping channel tool auto-allow for non-plugin or dev entry',
+      )
+    }
   }
 
   // Identical enqueue shape to the interactive register block in
@@ -4860,35 +4857,31 @@ function reregisterChannelHandlerAfterReconnect(
 
   // Only auto-allow the minimal set of known channel reply tools,
   // and only for official non-dev plugin channel entries.
-  if (entry?.kind === 'plugin' && entry?.dev !== true) {
-    const toolPrefix = getMcpPrefix(connection.name)
-    const channelToolRules = [
-      `${toolPrefix}reply`,
-      `${toolPrefix}send`,
-    ]
-    setAppState(prev => {
-      const sessionRules =
-        prev.toolPermissionContext.alwaysAllowRules.session ?? []
-      const nextRules = channelToolRules.filter(
-        rule => !sessionRules.includes(rule),
-      )
-      if (nextRules.length === 0) return prev
-      return {
-        ...prev,
-        toolPermissionContext: {
-          ...prev.toolPermissionContext,
-          alwaysAllowRules: {
-            ...prev.toolPermissionContext.alwaysAllowRules,
-            session: [...sessionRules, ...nextRules],
+  {
+    const autoRules = computeChannelAutoAllowRules(connection.name, entry)
+    if (autoRules.length > 0) {
+      setAppState(prev => {
+        const sessionRules =
+          prev.toolPermissionContext.alwaysAllowRules.session ?? []
+        const merged = mergeAutoAllowRules(sessionRules, autoRules)
+        if (!merged) return prev
+        return {
+          ...prev,
+          toolPermissionContext: {
+            ...prev.toolPermissionContext,
+            alwaysAllowRules: {
+              ...prev.toolPermissionContext.alwaysAllowRules,
+              session: merged,
+            },
           },
-        },
-      }
-    })
-  } else {
-    logMCPDebug(
-      connection.name,
-      'Skipping channel tool auto-allow for non-plugin or dev entry',
-    )
+        }
+      })
+    } else {
+      logMCPDebug(
+        connection.name,
+        'Skipping channel tool auto-allow for non-plugin or dev entry',
+      )
+    }
   }
   const pluginId =
     entry?.kind === 'plugin'

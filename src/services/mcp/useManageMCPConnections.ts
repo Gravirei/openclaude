@@ -81,6 +81,7 @@ import {
   fetchClaudeAIMcpConfigsIfEligible,
 } from './claudeai.js'
 import { registerElicitationHandler } from './elicitationHandler.js'
+import { computeChannelAutoAllowRules, mergeAutoAllowRules } from './channelAutoAllow.js'
 import { getMcpPrefix } from './mcpStringUtils.js'
 import { commandBelongsToServer, excludeStalePluginClients } from './utils.js'
 
@@ -509,36 +510,31 @@ export function useManageMCPConnections(
                 // and only for official non-dev plugin channel entries. Avoid
                 // granting a server-level rule, which would implicitly trust
                 // every tool exposed by the registered server.
-                if (entry?.kind === 'plugin' && entry?.dev !== true) {
-                  const toolPrefix = getMcpPrefix(client.name)
-                  const channelToolRules = [
-                    `${toolPrefix}reply`,
-                    `${toolPrefix}send`,
-                  ]
-
-                  store.setState(prev => {
-                    const sessionRules =
-                      prev.toolPermissionContext.alwaysAllowRules.session ?? []
-                    const nextRules = channelToolRules.filter(
-                      rule => !sessionRules.includes(rule),
-                    )
-                    if (nextRules.length === 0) return prev
-                    return {
-                      ...prev,
-                      toolPermissionContext: {
-                        ...prev.toolPermissionContext,
-                        alwaysAllowRules: {
-                          ...prev.toolPermissionContext.alwaysAllowRules,
-                          session: [...sessionRules, ...nextRules],
+                {
+                  const autoRules = computeChannelAutoAllowRules(client.name, entry)
+                  if (autoRules.length > 0) {
+                    store.setState(prev => {
+                      const sessionRules =
+                        prev.toolPermissionContext.alwaysAllowRules.session ?? []
+                      const merged = mergeAutoAllowRules(sessionRules, autoRules)
+                      if (!merged) return prev
+                      return {
+                        ...prev,
+                        toolPermissionContext: {
+                          ...prev.toolPermissionContext,
+                          alwaysAllowRules: {
+                            ...prev.toolPermissionContext.alwaysAllowRules,
+                            session: merged,
+                          },
                         },
-                      },
-                    }
-                  })
-                } else {
-                  logMCPDebug(
-                    client.name,
-                    'Skipping channel tool auto-allow for non-plugin or dev entry',
-                  )
+                      }
+                    })
+                  } else {
+                    logMCPDebug(
+                      client.name,
+                      'Skipping channel tool auto-allow for non-plugin or dev entry',
+                    )
+                  }
                 }
 
                 client.client.setNotificationHandler(

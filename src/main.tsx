@@ -1572,11 +1572,10 @@ async function run(): Promise<CommanderCommand> {
     if (true /* channels enabled */) {
       // Parse plugin:name@marketplace / server:Y tags into typed entries.
       // Tag decides trust model downstream: plugin-kind hits marketplace
-      // verification + GrowthBook allowlist, server-kind always fails
-      // allowlist (schema is plugin-only) unless dev flag is set.
-      // Untagged or marketplace-less plugin entries are hard errors —
-      // silently not-matching in the gate would look like channels are
-      // "on" but nothing ever fires.
+      // verification + hardcoded allowlist, server-kind requires dev flag
+      // (--dangerously-load-development-channels). Untagged or marketplace-less
+      // plugin entries are hard errors — silently not-matching in the gate
+      // would look like channels are "on" but nothing ever fires.
       const parseChannelEntries = (raw: string[], flag: string): ChannelEntry[] => {
         const entries: ChannelEntry[] = [];
         const bad: string[] = [];
