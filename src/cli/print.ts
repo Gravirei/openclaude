@@ -4698,10 +4698,6 @@ function handleChannelEnable(
       response: { subtype: 'error', request_id: requestId, error },
     })
 
-  if (false /* channels always enabled */) {
-    return respondError('channels feature not available in this build')
-  }
-
   // Only a 'connected' client has .capabilities and .client to register the
   // handler on. The pool spread at the call site matches mcp_status.
   const connection = connectionPool.find(
