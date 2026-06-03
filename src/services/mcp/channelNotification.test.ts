@@ -17,6 +17,7 @@ import {
 } from 'bun:test'
 import type { ServerCapabilities } from '@modelcontextprotocol/sdk/types.js'
 import type { ChannelEntry } from '../../bootstrap/state.js'
+import * as realState from '../../bootstrap/state.js'
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — isolate from real global state
@@ -35,7 +36,11 @@ beforeEach(() => {
   mockAllowedChannels = []
   mockChannelsEnabled = true
 
+  // Spread the real state module's exports so that any unrelated import
+  // (addSlowOperation, getSessionId, etc.) still resolves, then override
+  // getAllowedChannels for this test's controlled input.
   mock.module('../../bootstrap/state.js', () => ({
+    ...realState,
     getAllowedChannels: () => mockAllowedChannels,
   }))
 
