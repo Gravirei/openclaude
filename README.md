@@ -195,7 +195,7 @@ Channel plugins are MCP servers that bridge a messaging platform (Telegram, Disc
 ### Quick start with Telegram
 
 ```bash
-openclaude
+openclaude --channels plugin:telegram@claude-plugins-official
 ```
 
 Inside OpenClaude:
@@ -205,11 +205,11 @@ Inside OpenClaude:
 3. Restart OpenClaude or run `/reload-plugins`
 4. Send a message to your bot on Telegram — Claude will receive and reply
 
-Approved channel plugins (Telegram, Discord, iMessage) are auto-registered when they connect. No `--channels` flag needed.
+All channel plugins — including approved ones like Telegram, Discord, and iMessage — require explicit `--channels plugin:<name>@<marketplace>` opt-in for the current session. Approved plugins also pass the allowlist check automatically; non-allowlisted plugins need `--dangerously-load-development-channels` to run.
 
 ### Custom / development channels
 
-For custom or unsigned channel servers, use the `--channels` flag:
+For custom or unsigned channel servers, use the `--channels` flag together with the dev flag:
 
 ```bash
 # Plugin from a marketplace
@@ -221,7 +221,7 @@ openclaude --dangerously-load-development-channels --channels server:my-local-se
 
 ### Permissions
 
-Channel tools (reply, send, etc.) are auto-allowed for the session when a channel server registers. This means Claude can reply to channel messages without prompting you for permission each time.
+Only the channel server's `reply` tool is auto-allowed for the session when a channel server registers — this lets Claude respond to inbound traffic without prompting for permission each time. Outbound `send` and any other tools still go through the normal permission prompt.
 
 ## Provider Notes
 

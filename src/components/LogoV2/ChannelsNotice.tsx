@@ -171,9 +171,11 @@ function _temp2(c) {
 function _temp() {
   const ch = getAllowedChannels();
   if (ch.length === 0) {
-    // OpenClaude: even without --channels, allowlisted channel plugins
-    // (telegram, discord, etc.) auto-register at connect time. No startup
-    // notice needed — gateChannelServer handles it silently.
+    // No --channels entries this session: nothing to show, nothing
+    // registers. All channel plugins — including approved ones like
+    // telegram / discord / imessage — require explicit --channels opt-in.
+    // gateChannelServer() returns 'skip' for everything, which the runtime
+    // turns into a silent "no channel listener" state.
     return {
       channels: ch,
       disabled: false,

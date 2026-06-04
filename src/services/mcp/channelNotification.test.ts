@@ -109,6 +109,56 @@ describe('findChannelEntry', () => {
     // bare name "telegram" should NOT match a plugin entry
     expect(findChannelEntry('telegram', channels)).toBeUndefined()
   })
+
+  // Regression: same plugin name from multiple marketplaces must not pick the
+  // first name match — the runtime pluginSource is the disambiguator.
+  test('picks the entry whose marketplace matches the runtime pluginSource', async () => {
+    const { findChannelEntry } = await loadModule()
+    const channels: ChannelEntry[] = [
+      { kind: 'plugin', name: 'telegram', marketplace: 'anthropic-marketplace' },
+      { kind: 'plugin', name: 'telegram', marketplace: 'evil-marketplace' },
+    ]
+    const result = findChannelEntry(
+      'plugin:telegram:abc',
+      channels,
+      'telegram@evil-marketplace',
+    )
+    expect(result).toEqual(channels[1])
+  })
+
+  test('without pluginSource, falls back to first same-name match', async () => {
+    const { findChannelEntry } = await loadModule()
+    const channels: ChannelEntry[] = [
+      { kind: 'plugin', name: 'telegram', marketplace: 'anthropic-marketplace' },
+      { kind: 'plugin', name: 'telegram', marketplace: 'evil-marketplace' },
+    ]
+    const result = findChannelEntry('plugin:telegram:abc', channels)
+    expect(result).toEqual(channels[0])
+  })
+
+  test('with pluginSource whose marketplace matches no entry, falls back to first', async () => {
+    const { findChannelEntry } = await loadModule()
+    const channels: ChannelEntry[] = [
+      { kind: 'plugin', name: 'telegram', marketplace: 'anthropic-marketplace' },
+      { kind: 'plugin', name: 'telegram', marketplace: 'evil-marketplace' },
+    ]
+    const result = findChannelEntry(
+      'plugin:telegram:abc',
+      channels,
+      'telegram@some-other-marketplace',
+    )
+    expect(result).toEqual(channels[0])
+  })
+
+  test('with @-less pluginSource, falls back to first same-name match', async () => {
+    const { findChannelEntry } = await loadModule()
+    const channels: ChannelEntry[] = [
+      { kind: 'plugin', name: 'telegram', marketplace: 'anthropic-marketplace' },
+      { kind: 'plugin', name: 'telegram', marketplace: 'evil-marketplace' },
+    ]
+    const result = findChannelEntry('plugin:telegram:abc', channels, 'telegram')
+    expect(result).toEqual(channels[0])
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -268,6 +318,26 @@ describe('gateChannelServer — marketplace verification', () => {
     )
     expect(result.action).toBe('skip')
     expect((result as any).kind).toBe('marketplace')
+  })
+
+  // Regression: with two same-name plugin entries for different marketplaces,
+  // a valid configured entry for the actually-installed marketplace must not
+  // be rejected just because the other entry happened to be first in the list.
+  test('picks the marketplace-matched entry among same-name plugin entries', async () => {
+    const { gateChannelServer } = await loadModule()
+    mockAllowedChannels = [
+      // Different marketplace, on the allowlist — the OLD code would have
+      // picked this one and then rejected as a marketplace mismatch.
+      { kind: 'plugin', name: 'telegram', marketplace: 'anthropic-marketplace' },
+      // Matches the actually-installed plugin and is also on the allowlist.
+      { kind: 'plugin', name: 'telegram', marketplace: 'claude-plugins-official' },
+    ]
+    const result = gateChannelServer(
+      'plugin:telegram:abc',
+      CHANNEL_CAP,
+      'telegram@claude-plugins-official',
+    )
+    expect(result.action).toBe('register')
   })
 })
 
