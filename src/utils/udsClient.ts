@@ -1,36 +1,55 @@
-/**
- * Inert stub for the UDS (Unix domain socket) messaging client.
- *
- * The real implementation is not part of this source tree; the bundler
- * noop-stubs this specifier in builds where the relevant features
- * (`UDS_INBOX`, `BG_SESSIONS`) are disabled. This module preserves that
- * behavior: no sockets are contacted and no import-time side effects occur.
- */
+import { connect } from 'net'
+import { readdir, readFile } from 'fs/promises'
+import { join } from 'path'
+import { getClaudeConfigHomeDir } from './envUtils.js'
+import { isProcessRunning } from './genericProcessUtils.js'
 
-/** A live session discovered via its UDS messaging socket. */
 export type LiveSession = {
   sessionId?: string
-  /** Session kind, e.g. 'interactive', or a background/daemon variant. */
   kind?: string
 }
 
-/**
- * List all live sessions advertising a UDS messaging socket.
- * Inert: no sockets are probed; always resolves to an empty list.
- */
 export async function listAllLiveSessions(): Promise<LiveSession[]> {
-  return []
+  const dir = join(getClaudeConfigHomeDir(), 'sessions')
+  let files: string[]
+  try {
+    files = await readdir(dir)
+  } catch {
+    return []
+  }
+
+  const sessions: LiveSession[] = []
+  for (const file of files) {
+    if (!/^\d+\.json$/.test(file)) continue
+    const pid = parseInt(file.slice(0, -5), 10)
+    if (!isProcessRunning(pid)) continue
+
+    try {
+      const content = await readFile(join(dir, file), 'utf8')
+      const data = JSON.parse(content) as Record<string, unknown>
+      if (data.messagingSocketPath) {
+        sessions.push({
+          sessionId: data.sessionId as string | undefined,
+          kind: data.kind as string | undefined,
+        })
+      }
+    } catch {
+      // Stale/malformed PID file — skip
+    }
+  }
+  return sessions
 }
 
-/**
- * Send a message to a session's UDS messaging socket.
- * Inert: delivery is impossible without the real client, so this always
- * rejects. Callers handle the failure (SendMessageTool wraps it in a
- * try/catch and reports the send as failed).
- */
 export async function sendToUdsSocket(
-  _socketPath: string,
-  _message: string,
+  socketPath: string,
+  message: string,
 ): Promise<void> {
-  throw new Error('UDS messaging is unavailable in this build')
+  return new Promise<void>((resolve, reject) => {
+    const client = connect(socketPath, () => {
+      client.write(message)
+      client.end()
+    })
+    client.on('end', () => resolve())
+    client.on('error', reject)
+  })
 }

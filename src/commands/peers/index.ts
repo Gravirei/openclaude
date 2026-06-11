@@ -1,20 +1,30 @@
-// Stub — peers command not included in source snapshot.
-// isEnabled() → false keeps it out of the command list, matching the previous
-// behavior where the missing module resolved to a null command.
 import type { Command } from '../../commands.js'
+import { listAllLiveSessions } from '../../utils/udsClient.js'
 
 const peers = {
   type: 'local',
   name: 'peers',
   description: 'List connected peer sessions',
-  isEnabled: () => false,
-  isHidden: true,
-  supportsNonInteractive: false,
+  isEnabled: () => true,
+  isHidden: false,
+  supportsNonInteractive: true,
   load: async () => ({
-    call: async () => ({
-      type: 'text' as const,
-      value: '/peers is not available in this build',
-    }),
+    call: async () => {
+      const sessions = await listAllLiveSessions()
+      if (sessions.length === 0) {
+        return {
+          type: 'text' as const,
+          value: 'No peer sessions found.',
+        }
+      }
+      const lines = sessions.map(
+        s => `  ${s.sessionId ?? 'unknown'}  (${s.kind ?? 'unknown'})`,
+      )
+      return {
+        type: 'text' as const,
+        value: `Peer sessions:\n${lines.join('\n')}`,
+      }
+    },
   }),
 } satisfies Command
 
