@@ -186,7 +186,26 @@ export type SessionMessage = {
 
 // Re-export precise SDK message types from generated types
 // These use camelCase field names and discriminated unions for full IntelliSense
-import type { ToolAnnotations, CallToolResult } from '@modelcontextprotocol/sdk/types.js'
+// Note: ToolAnnotations and CallToolResult shapes mirror the MCP SDK but are
+// declared locally to keep the public SDK declarations free of the optional
+// `@modelcontextprotocol/sdk` peer dependency. They are stable SDK shapes.
+type ToolAnnotations = {
+  title?: string
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+}
+type CallToolResult = {
+  content?: Array<
+    | { type: 'text'; text: string }
+    | { type: 'image'; data: string; mimeType: string }
+    | { type: 'resource'; resource: { uri: string; text?: string; mimeType?: string } }
+    | { type: string; [key: string]: unknown }
+  >
+  isError?: boolean
+  [key: string]: unknown
+}
 import type {
   AccountInfo,
   AgentInfo,
@@ -446,7 +465,7 @@ export interface SdkMcpToolDefinition<Schema = unknown> {
   name: string
   description: string
   inputSchema: Schema
-  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>
+  handler: (args: any, extra: unknown) => Promise<CallToolResult>
   annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean
@@ -530,7 +549,7 @@ export function tool<Schema = unknown>(
   name: string,
   description: string,
   inputSchema: Schema,
-  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>,
+  handler: (args: any, extra: unknown) => Promise<CallToolResult>,
   extras?: {
     annotations?: ToolAnnotations
     searchHint?: string

@@ -172,7 +172,7 @@ export function tool<Schema = unknown>(
   name: string,
   description: string,
   inputSchema: Schema,
-  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>,
+  handler: (args: any, extra: unknown) => Promise<CallToolResult>,
   extras?: {
     annotations?: ToolAnnotations
     searchHint?: string

@@ -182,7 +182,7 @@ export interface SdkMcpToolDefinition<Schema = unknown> {
   name: string
   description: string
   inputSchema: Schema
-  handler: (args: Schema, extra: unknown) => Promise<CallToolResult>
+  handler: (args: any, extra: unknown) => Promise<CallToolResult>
   annotations?: ToolAnnotations
   searchHint?: string
   alwaysLoad?: boolean

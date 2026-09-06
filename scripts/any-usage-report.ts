@@ -64,8 +64,11 @@ async function walk(dir: string, out: string[]): Promise<void> {
   let entries: string[]
   try {
     entries = await readdir(dir)
-  } catch {
-    return
+  } catch (err) {
+    // Propagate enumeration failures so a partial scan doesn't silently
+    // report a too-low count. The caller wraps this in a try and exits
+    // nonzero with the original error.
+    throw new Error(`readdir failed for ${dir}: ${err instanceof Error ? err.message : String(err)}`)
   }
   for (const name of entries) {
     if (EXCLUDE_DIR_NAMES.has(name)) continue
@@ -80,6 +83,107 @@ async function walk(dir: string, out: string[]): Promise<void> {
       out.push(full)
     }
   }
+}
+
+// Replace the contents of comments, strings, and template literals with
+// spaces of equal length so the type-annotation regex only matches real
+// TypeScript code. Newlines and offsets are preserved so report line numbers
+// stay correct.
+function stripNonCode(source: string): string {
+  let out = ''
+  let i = 0
+  const n = source.length
+  while (i < n) {
+    const c = source[i]
+    const c2 = i + 1 < n ? source[i + 1] : ''
+    // Block comment /* ... */ — preserve @ts-ignore markers in IGNORE_RE
+    // by NOT stripping the directive prefix; IGNORE_RE only matches
+    // `// @ts-...` (line) so block comments are safe to fully strip.
+    if (c === '/' && c2 === '*') {
+      const end = source.indexOf('*/', i + 2)
+      if (end === -1) {
+        out += ' '.repeat(n - i)
+        i = n
+        break
+      }
+      // Replace with spaces, keep newlines so line numbers stay stable.
+      for (let j = i; j < end + 2; j++) {
+        out += source[j] === '\n' ? '\n' : ' '
+      }
+      i = end + 2
+      continue
+    }
+    // Line comment — keep `// @ts-...` markers for IGNORE_RE; strip the
+    // rest of the line. This preserves the existing ignore-directive
+    // accounting while still excluding `: any` in prose.
+    if (c === '/' && c2 === '/') {
+      // Find next newline
+      let end = i
+      while (end < n && source[end] !== '\n') end++
+      const segment = source.slice(i, end)
+      const isDirective = /^\s*\/\/\s*@(ts-ignore|ts-expect-error|ts-nocheck)\b/.test(segment)
+      if (isDirective) {
+        out += segment
+      } else {
+        out += ' '.repeat(segment.length)
+      }
+      i = end
+      continue
+    }
+    // String literals
+    if (c === '"' || c === "'") {
+      const quote = c
+      let end = i + 1
+      while (end < n) {
+        if (source[end] === '\\' && end + 1 < n) {
+          end += 2
+          continue
+        }
+        if (source[end] === quote) {
+          end++
+          break
+        }
+        if (source[end] === '\n') {
+          // Unterminated string — bail and keep the rest verbatim.
+          break
+        }
+        end++
+      }
+      out += ' '.repeat(end - i)
+      i = end
+      continue
+    }
+    // Template literal — simpler handling: strip ${...} interpolation
+    // contents as well, since the inner expression has its own type scope.
+    if (c === '`') {
+      let end = i + 1
+      while (end < n && source[end] !== '`') {
+        if (source[end] === '\\' && end + 1 < n) {
+          end += 2
+          continue
+        }
+        if (source[end] === '$' && source[end + 1] === '{') {
+          // Strip interpolation body
+          let depth = 1
+          end += 2
+          while (end < n && depth > 0) {
+            if (source[end] === '{') depth++
+            else if (source[end] === '}') depth--
+            if (depth > 0) end++
+          }
+          continue
+        }
+        end++
+      }
+      if (end < n) end++ // consume closing `
+      out += ' '.repeat(end - i)
+      i = end
+      continue
+    }
+    out += c
+    i++
+  }
+  return out
 }
 
 function countMatches(source: string, re: RegExp): number {
@@ -116,7 +220,10 @@ async function scan(): Promise<Report> {
     const found: string[] = []
     await walk(root, found)
     for (const absPath of found) {
-      const source = await readFile(absPath, 'utf8')
+      const raw = await readFile(absPath, 'utf8')
+      // Strip comments, strings, and template literals so `: any` in prose
+      // and `': any'` literals don't count as type annotations.
+      const source = stripNonCode(raw)
       if (!ANNOTATION_RE.test(source) && !CAST_RE.test(source) && !IGNORE_RE.test(source)) {
         continue
       }

@@ -57,10 +57,10 @@ const TypeOverrideMap: Record<string, string> = {
 // when they appear as fields inside other schemas.
 const placeholderInstances = new Map<unknown, string>()
 for (const name of Object.keys(TypeOverrideMap)) {
-  const thunk = (schemas as Record<string, () => unknown>)[name]
-  if (typeof thunk === 'function') {
+  const candidate = (schemas as Record<string, unknown>)[name]
+  if (typeof candidate === 'function') {
     try {
-      placeholderInstances.set(thunk(), TypeOverrideMap[name])
+      placeholderInstances.set((candidate as () => unknown)(), TypeOverrideMap[name])
     } catch { /* ignore */ }
   }
 }
@@ -310,8 +310,11 @@ function convert(schema: unknown, depth = 0): string {
       return `${convert(def.innerType, depth)} | null`
     case 'default':
       return convert(def.innerType, depth)
-    case 'lazy':
-      return convert(def.getter(), depth)
+    case 'lazy': {
+      const getter = def.getter
+      if (typeof getter !== 'function') return 'unknown'
+      return convert((getter as () => unknown)(), depth)
+    }
     case 'transform':
     case 'effects':
       return convert(def.schema, depth)
@@ -422,7 +425,10 @@ export function generateSdkTypes(): string {
     try {
       const ts = convert(schema)
       // Check for top-level description
-      const desc = Reflect.get(schema, 'description') as string | undefined
+      const desc =
+        schema && typeof schema === 'object'
+          ? (Reflect.get(schema, 'description') as string | undefined)
+          : undefined
       if (desc) {
         lines.push(`/** ${desc} */`)
       }

@@ -257,13 +257,18 @@ function normalizeLegacyData(value: unknown): LegacyData {
   const rawEntities = v?.entities
   let entities: LegacyEntityBag = {}
   if (Array.isArray(rawEntities)) {
+    // Array form: mergeLegacySources falls back to `String(id ?? entryKey)`,
+    // so key the array form by the index to preserve the same fallback
+    // contract. An entry with an explicit id overrides any previous entry
+    // with the same id (last-wins) so concurrent stores converge to the
+    // newest copy; entryKey collisions across arrays are not possible
+    // because the outer `mergeLegacySources` loop never sees two arrays at
+    // once.
     const out: Record<string, LegacyEntity> = {}
-    for (const e of rawEntities) {
+    for (let i = 0; i < rawEntities.length; i++) {
+      const e = rawEntities[i]
       if (e && typeof e === 'object') {
-        const id = (e as LegacyEntity).id
-        if (typeof id === 'string' || typeof id === 'number') {
-          out[String(id)] = e as LegacyEntity
-        }
+        out[String(i)] = e as LegacyEntity
       }
     }
     entities = out
