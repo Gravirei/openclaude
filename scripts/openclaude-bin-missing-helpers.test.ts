@@ -1,11 +1,13 @@
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -28,17 +30,33 @@ type LauncherResult = {
 // only the launcher file without its bin/*.mjs siblings (issue #2255). The
 // launcher must still boot via its inline fallbacks instead of crashing with
 // ERR_MODULE_NOT_FOUND before any code runs.
+function assertBuiltCli(): void {
+  const builtCli = join(REPO_ROOT, 'dist', 'cli.mjs')
+  if (!existsSync(builtCli)) {
+    throw new Error(
+      `dist/cli.mjs not found at ${builtCli} — run \`bun run build\` before these tests.`,
+    )
+  }
+}
+
 function makeSiblinglessLayout(): string {
+  assertBuiltCli()
   const root = mkdtempSync(join(tmpdir(), 'openclaude-siblingless-'))
   const binDir = join(root, 'bin')
   mkdirSync(binDir, { recursive: true })
   copyFileSync(BIN_PATH, join(binDir, 'openclaude'))
-  symlinkSync(join(REPO_ROOT, 'dist'), join(root, 'dist'))
-  symlinkSync(join(REPO_ROOT, 'node_modules'), join(root, 'node_modules'))
+  // 'junction' is ignored on POSIX and lets Windows create directory links
+  // without elevated privileges.
+  symlinkSync(join(REPO_ROOT, 'dist'), join(root, 'dist'), 'junction')
+  symlinkSync(
+    join(REPO_ROOT, 'node_modules'),
+    join(root, 'node_modules'),
+    'junction',
+  )
   return root
 }
 
-function runSiblingless(
+function runLauncher(
   root: string,
   args: string[],
   extraEnv: NodeJS.ProcessEnv = {},
@@ -62,6 +80,14 @@ function runSiblingless(
   }
 }
 
+function runSiblingless(
+  root: string,
+  args: string[],
+  extraEnv: NodeJS.ProcessEnv = {},
+): LauncherResult {
+  return runLauncher(root, args, extraEnv)
+}
+
 function withSiblinglessLayout(fn: (root: string) => void): void {
   const root = makeSiblinglessLayout()
   try {
@@ -70,6 +96,82 @@ function withSiblinglessLayout(fn: (root: string) => void): void {
     rmSync(root, { recursive: true, force: true })
   }
 }
+
+// The inline fallbacks in bin/openclaude duplicate bin/heap-limit.mjs, so the
+// same inputs must resolve to the same heap through both paths. The stub
+// bundle below reports what the launcher resolved instead of starting the CLI,
+// letting a full-sibling layout and a siblingless layout be compared
+// observably without changing resolver behavior.
+const HEAP_OBSERVER_STUB = `console.log(JSON.stringify({ heapMb: process.env.OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB ?? null, maxMemoryMb: process.env.OPENCLAUDE_MAX_MEMORY_MB ?? null, heapFlag: process.execArgv.find(a => a.startsWith('--max-old-space-size=')) ?? null }))\n`
+
+function makeHeapObserverLayout(withSiblings: boolean): string {
+  assertBuiltCli()
+  const tag = withSiblings ? 'full' : 'siblingless'
+  const root = mkdtempSync(join(tmpdir(), `openclaude-heap-parity-${tag}-`))
+  const binDir = join(root, 'bin')
+  const distDir = join(root, 'dist')
+  mkdirSync(binDir, { recursive: true })
+  mkdirSync(distDir, { recursive: true })
+  copyFileSync(BIN_PATH, join(binDir, 'openclaude'))
+  if (withSiblings) {
+    for (const helper of ['heap-limit.mjs', 'node-compile-cache.mjs']) {
+      copyFileSync(join(REPO_ROOT, 'bin', helper), join(binDir, helper))
+    }
+  }
+  writeFileSync(join(distDir, 'cli.mjs'), HEAP_OBSERVER_STUB)
+  return root
+}
+
+type HeapParityCase = {
+  name: string
+  args: string[]
+  env: NodeJS.ProcessEnv
+  expectedMb: string | null
+  expectedMaxMemoryMb?: string
+}
+
+const HEAP_PARITY_CASES: HeapParityCase[] = [
+  { name: 'default heap', args: [], env: {}, expectedMb: '8192' },
+  {
+    name: 'env MB override',
+    args: [],
+    env: { OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB: '4096' },
+    expectedMb: '4096',
+  },
+  {
+    name: '--max-memory wins over percentage',
+    args: ['--max-memory=1536'],
+    env: { OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE: '90' },
+    expectedMb: '1536',
+    expectedMaxMemoryMb: '1536',
+  },
+  // Percentage outcomes depend on host RAM, so these cases assert fallback /
+  // canonical equality rather than an exact value.
+  {
+    name: 'argv percentage',
+    args: ['--max-old-space-size-percentage=50'],
+    env: {},
+    expectedMb: null,
+  },
+  {
+    name: 'spaced argv percentage',
+    args: ['--max-old-space-size-percentage', '25'],
+    env: {},
+    expectedMb: null,
+  },
+  {
+    name: 'env percentage',
+    args: [],
+    env: { OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE: '50' },
+    expectedMb: null,
+  },
+  {
+    name: 'invalid percentage falls back to env MB',
+    args: ['--max-old-space-size-percentage=0'],
+    env: { OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB: '4096' },
+    expectedMb: '4096',
+  },
+]
 
 describe('openclaude launcher without bin/*.mjs siblings', () => {
   test('boots --version with silent stderr', () => {
@@ -165,4 +267,40 @@ describe('openclaude launcher without bin/*.mjs siblings', () => {
       expect(`${result.stdout}${result.stderr}`).not.toContain('unknown option')
     })
   })
+})
+
+describe('openclaude launcher heap fallback/canonical parity', () => {
+  for (const parityCase of HEAP_PARITY_CASES) {
+    test(`resolves the same heap with and without siblings: ${parityCase.name}`, () => {
+      const full = makeHeapObserverLayout(true)
+      const siblingless = makeHeapObserverLayout(false)
+      try {
+        const canonical = runLauncher(full, parityCase.args, parityCase.env)
+        const fallback = runLauncher(
+          siblingless,
+          parityCase.args,
+          parityCase.env,
+        )
+        expect(canonical.status).toBe(0)
+        expect(fallback.status).toBe(0)
+        expect(fallback.stdout).toBe(canonical.stdout)
+        expect(fallback.stderr).toBe('')
+        if (parityCase.expectedMb !== null) {
+          const observed = JSON.parse(canonical.stdout)
+          expect(observed.heapMb).toBe(parityCase.expectedMb)
+          expect(observed.heapFlag).toBe(
+            `--max-old-space-size=${parityCase.expectedMb}`,
+          )
+        }
+        if (parityCase.expectedMaxMemoryMb !== undefined) {
+          expect(JSON.parse(canonical.stdout).maxMemoryMb).toBe(
+            parityCase.expectedMaxMemoryMb,
+          )
+        }
+      } finally {
+        rmSync(full, { recursive: true, force: true })
+        rmSync(siblingless, { recursive: true, force: true })
+      }
+    })
+  }
 })
