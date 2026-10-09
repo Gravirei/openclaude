@@ -61,16 +61,31 @@ function runLauncher(
   args: string[],
   extraEnv: NodeJS.ProcessEnv = {},
 ): LauncherResult {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    CI: '1',
+    NO_COLOR: '1',
+    OPENCLAUDE_CONFIG_DIR: join(root, 'config'),
+  }
+  // Heap-related env must not leak in from the outer environment: the parity
+  // cases assert exact resolved values, and an inherited override (or a
+  // relaunch toggle) would silently change what the launcher resolves. Each
+  // case's env is applied after this cleanup, so explicit overrides still win.
+  for (const key of [
+    'OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_MB',
+    'OPENCLAUDE_NODE_MAX_OLD_SPACE_SIZE_PERCENTAGE',
+    'OPENCLAUDE_MAX_MEMORY_MB',
+    'OPENCLAUDE_HEAP_RELAUNCHED',
+    'OPENCLAUDE_DISABLE_HEAP_RELAUNCH',
+  ]) {
+    delete env[key]
+  }
+  if (!Object.hasOwn(extraEnv, 'NODE_OPTIONS')) delete env.NODE_OPTIONS
+  Object.assign(env, extraEnv)
   const result = spawnSync('node', [join(root, 'bin', 'openclaude'), ...args], {
     cwd: root,
     encoding: 'utf8',
-    env: {
-      ...process.env,
-      CI: '1',
-      NO_COLOR: '1',
-      OPENCLAUDE_CONFIG_DIR: join(root, 'config'),
-      ...extraEnv,
-    },
+    env,
     timeout: 30_000,
   })
   return {
