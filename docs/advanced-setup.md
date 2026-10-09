@@ -399,12 +399,14 @@ bundled**. They are loaded on demand, and the CLI prints an `npm install <pkg>`
 hint (add `-g` for the global CLI) if you enable a feature whose package is
 missing. Install only what you need:
 
+**Image handling note:** default global installs do **not** ship `sharp`. Clipboard paste, drag-and-drop of a local image path, and FileReadTool paths that decode a local file need `npm i -g sharp`. Forwarding an already-encoded image URL/base64 that the API accepts without local decode (passthrough) does not. This opt-in is intentional for published installs; it is not an accidental omission.
+
 | Feature | Trigger | Install |
 | --- | --- | --- |
 | AWS Bedrock | `CLAUDE_CODE_USE_BEDROCK=1` | `npm i -g @anthropic-ai/bedrock-sdk`. Profile-based auth (`~/.aws/credentials`) additionally needs `@aws-sdk/credential-providers` and `@aws-sdk/client-sts`; model listing needs `@aws-sdk/client-bedrock`. Proxy and skip-auth setups may also need `@aws-sdk/credential-provider-node`, `@smithy/node-http-handler`, or `@smithy/core`. The CLI prints the exact missing package if you hit one. |
 | Azure Foundry | `CLAUDE_CODE_USE_FOUNDRY=1` | `npm i -g @anthropic-ai/foundry-sdk @azure/identity` |
 | Claude on Vertex AI / Gemini ADC | `CLAUDE_CODE_USE_VERTEX=1` / Gemini ADC auth | `npm i -g google-auth-library` |
-| Reading/processing images | reading an image file | `npm i -g sharp` |
+| Reading/processing images (clipboard paste, drag-and-drop paths, FileReadTool local decode) | local image decode — **not** pre-encoded URL/base64 passthrough | `npm i -g sharp` (intentionally opt-in; prebuilt releases load it externally only when processing requires it) |
 | Optional error reporting | `SENTRY_DSN` is set | `npm i -g @sentry/node`. Without this package installed, setting `SENTRY_DSN` has no effect and reporting is silently disabled. |
 
 When installing OpenClaude from source (`bun install`), all of these are
@@ -542,6 +544,28 @@ model in its configured list and the supported saved `/model` selection restored
 for that profile. Query options such as `?reasoning=high` or `?thinking=disabled`
 remain in the selected model, but context-limit keys use the model name before
 `?`. For example, `gpt-5.4?reasoning=high` uses the `gpt-5.4` context limit.
+
+### Web search
+
+[Exa](https://exa.ai) is the default web search backend. With no setup, searches
+on non-Anthropic models use Exa's keyless free tier, which has per-second and
+daily limits. Run `/search` to pick a backend, add or remove an API key in a
+hidden input, check which backend is active (`/search status`), or run a test
+search (`/search test`). `/search` saves its choices to the `env` block of
+`~/.openclaude.json`; an `env` entry for the same variable in any
+`settings.json` takes precedence, and `/search` says so when that happens.
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `WEB_SEARCH_PROVIDER` | No | `auto` (default): keyed Exa first, then any other backend you configured with a key, then the Exa free tier, then DuckDuckGo. Anthropic first-party, Vertex, Foundry, and Codex keep their built-in search in `auto`. Set one backend (`exa`, `tavily`, `brave`, `firecrawl`, `you`, `jina`, `bing`, `mojeek`, `linkup`, `ollama`, `ddg`, `custom`, or `native`) to use only that backend and fail instead of falling back. |
+| `EXA_API_KEY` | No | Exa API key for higher limits than the free tier. Free keys: https://dashboard.exa.ai/api-keys |
+| `EXA_SEARCH_TYPE` | No | Exa search type with a key: `auto` (default), `instant`, `fast`, `deep-lite`, `deep`, or `deep-reasoning`. The deep types can need a higher `WEB_SEARCH_TIMEOUT_SEC`. |
+| `EXA_NUM_RESULTS` | No | Results per Exa search, 1–50 (default `15`). |
+| `EXA_FREE_TIER` | No | Set to `0` so searches never go to Exa without a key. |
+| `WEB_SEARCH_TIMEOUT_SEC` | No | Timeout for built-in search backends in seconds (default `15`). |
+
+See [Web Search Providers](../src/tools/WebSearchTool/README_SEARCH_PROVIDERS.md)
+for every backend, its key, and the custom-API options.
 
 ### Per-model limit overrides (`settings.json`)
 
