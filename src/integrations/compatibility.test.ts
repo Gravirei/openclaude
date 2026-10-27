@@ -36,6 +36,7 @@ const EXPECTED_PRESETS = [
   'azure-openai',
   'openrouter',
   'orcarouter',
+  'runcrate',
   'lmstudio',
   'dashscope-cn',
   'dashscope-intl',

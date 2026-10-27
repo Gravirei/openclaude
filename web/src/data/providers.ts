@@ -165,6 +165,14 @@ export const providers: Provider[] = [
     notes: 'OpenAI-compatible model routing gateway with named auto routing. Existing environment setups must replace OPENAI_API_KEY with ORCAROUTER_API_KEY, even when a custom authentication header supplies the request credential. Custom headers remain supported.',
   },
   {
+    id: 'runcrate',
+    name: 'Runcrate',
+    group: 'gateways',
+    setup: '/provider or RUNCRATE_API_KEY with --provider runcrate',
+    envVars: ['RUNCRATE_API_KEY'],
+    notes: 'OpenAI-compatible aggregating gateway at https://api.runcrate.ai/v1; defaults to deepseek-ai/DeepSeek-V4.1-Flash with curated open models (DeepSeek, GLM, Qwen, GPT-OSS). Existing environment setups must replace OPENAI_API_KEY with RUNCRATE_API_KEY. Custom headers remain supported.',
+  },
+  {
     id: 'near-ai',
     name: 'NEAR AI',
     group: 'gateways',
