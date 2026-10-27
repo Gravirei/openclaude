@@ -206,24 +206,31 @@ export function getLockFilePath(): string {
 async function acquireLock(): Promise<boolean> {
   const fs = getFsImplementation()
   const lockPath = getLockFilePath()
+  const tempLockPath = `${lockPath}.${process.pid}.${Date.now()}.tmp`
 
-  // Check for existing lock: 1 stat() on the happy path (fresh lock or ENOENT),
-  // 2 on stale-lock recovery (re-verify staleness immediately before unlink).
+  // Check for existing lock
   try {
     const stats = await fs.stat(lockPath)
     const age = Date.now() - stats.mtimeMs
     if (age < LOCK_TIMEOUT_MS) {
-      return false
+      // Lock is fresh - check if the owning process is still alive
+      const lockData = await fs.readFile(lockPath, { encoding: 'utf8' }).catch(() => null)
+      const lockPid = lockData ? parseInt(lockData.trim(), 10) : NaN
+      if (!isNaN(lockPid) && isProcessAlive(lockPid)) {
+        return false
+      }
+      // Process is dead, treat as stale and continue to recovery
     }
-    // Lock is stale, remove it before taking over. Re-verify staleness
-    // immediately before unlinking to close a TOCTOU race: if two processes
-    // both observe the stale lock, A unlinks + writes a fresh lock, then B
-    // would unlink A's fresh lock and both believe they hold it. A fresh
-    // lock has a recent mtime, so re-checking staleness makes B back off.
+    // Lock is stale or owner dead - attempt recovery
     try {
       const recheck = await fs.stat(lockPath)
       if (Date.now() - recheck.mtimeMs < LOCK_TIMEOUT_MS) {
-        return false
+        // Another process may have just acquired it
+        const lockData = await fs.readFile(lockPath, { encoding: 'utf8' }).catch(() => null)
+        const lockPid = lockData ? parseInt(lockData.trim(), 10) : NaN
+        if (!isNaN(lockPid) && isProcessAlive(lockPid)) {
+          return false
+        }
       }
       await fs.unlink(lockPath)
     } catch (err) {
@@ -240,32 +247,33 @@ async function acquireLock(): Promise<boolean> {
     // ENOENT: no lock file, proceed to create one
   }
 
-  // Create lock file atomically with O_EXCL (flag: 'wx'). If another process
-  // wins the race and creates it first, we get EEXIST and back off.
-  // Lazy-mkdir the config dir on ENOENT.
+  // Create lock file atomically: write to unique temp file, then rename
+  // This avoids TOCTOU between stat/unlink and create
   try {
-    await writeFile(lockPath, `${process.pid}`, {
+    await writeFile(tempLockPath, `${process.pid}`, {
       encoding: 'utf8',
       flag: 'wx',
     })
+    await fs.rename(tempLockPath, lockPath)
     return true
   } catch (err) {
+    // Clean up temp file on error
+    await fs.unlink(tempLockPath).catch(() => {})
     const code = getErrnoCode(err)
     if (code === 'EEXIST') {
       return false
     }
     if (code === 'ENOENT') {
       try {
-        // fs.mkdir from getFsImplementation() is always recursive:true and
-        // swallows EEXIST internally, so a dir-creation race cannot reach the
-        // catch below — only writeFile's EEXIST (true lock contention) can.
         await fs.mkdir(getClaudeConfigHomeDir())
-        await writeFile(lockPath, `${process.pid}`, {
+        await writeFile(tempLockPath, `${process.pid}`, {
           encoding: 'utf8',
           flag: 'wx',
         })
+        await fs.rename(tempLockPath, lockPath)
         return true
       } catch (mkdirErr) {
+        await fs.unlink(tempLockPath).catch(() => {})
         if (getErrnoCode(mkdirErr) === 'EEXIST') {
           return false
         }
@@ -275,6 +283,20 @@ async function acquireLock(): Promise<boolean> {
     }
     logError(err as Error)
     return false
+  }
+}
+
+/**
+ * Check if a process is alive by sending signal 0
+ */
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    const code = getErrnoCode(err)
+    // ESRCH = no such process, EPERM = process exists but we can't signal it
+    return code !== 'ESRCH'
   }
 }
 

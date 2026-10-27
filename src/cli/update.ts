@@ -410,7 +410,7 @@ export async function update() {
     status = await installOrUpdateClaudePackage(channel)
   } else {
     logForDebugging('update: Calling installGlobalPackage() for global update')
-    status = await installGlobalPackage()
+    status = await installGlobalPackage(latestVersion)
   }
 
   logForDebugging(`update: Installation status: ${status}`)
