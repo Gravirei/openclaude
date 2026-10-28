@@ -406,6 +406,9 @@ export function applyProviderFlag(
                           process.env.OPENAI_API_KEY === process.env.ORCAROUTER_API_KEY
                         ? 'orcarouter'
                       : process.env.OPENAI_API_KEY !== undefined &&
+                          process.env.OPENAI_API_KEY === process.env.RUNCRATE_API_KEY
+                        ? 'runcrate'
+                      : process.env.OPENAI_API_KEY !== undefined &&
                           process.env.OPENAI_API_KEY === process.env.APISMART_API_KEY
                         ? 'apismart'
                         : process.env.OPENAI_API_KEY !== undefined &&

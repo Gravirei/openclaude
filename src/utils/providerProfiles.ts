@@ -39,8 +39,11 @@ import {
   buildVertexProfileEnv,
   clearManagedProfileEnv,
   isManagedOrcarouterCredential,
+  isManagedRuncrateCredential,
   orcarouterCredentialFingerprint,
   PROFILE_ORCAROUTER_KEY_SHA256,
+  PROFILE_RUNCRATE_KEY_SHA256,
+  runcrateCredentialFingerprint,
   deleteProfileFile,
   type ProfileFileLocation,
   type ProfileEnv,
@@ -132,6 +135,19 @@ function rememberManagedOrcarouterCredential(
     // Inherit provenance with the applied markers: saved config can change
     // before a child starts, so it cannot reconstruct ownership from config.
     processEnv[PROFILE_ORCAROUTER_KEY_SHA256] = orcarouterCredentialFingerprint(value)
+  }
+}
+
+function rememberManagedRuncrateCredential(
+  profile: ProviderProfile,
+  processEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  const value = sanitizeApiKey(profile.apiKey)?.trim()
+  if (value && resolveRouteIdFromBaseUrl(profile.baseUrl) === 'runcrate' &&
+    processEnv[PROFILE_ENV_APPLIED_FLAG] === '1' &&
+    trimOrUndefined(processEnv[PROFILE_ENV_APPLIED_ID]) === profile.id &&
+    sanitizeApiKey(processEnv.RUNCRATE_API_KEY)?.trim() === value) {
+    processEnv[PROFILE_RUNCRATE_KEY_SHA256] = runcrateCredentialFingerprint(value)
   }
 }
 
@@ -885,6 +901,9 @@ function getHostDedicatedCredentialEnv(
   if (apiKey && resolveRouteIdFromBaseUrl(baseUrl) === 'orcarouter') {
     env.ORCAROUTER_API_KEY = apiKey
   }
+  if (apiKey && resolveRouteIdFromBaseUrl(baseUrl) === 'runcrate') {
+    env.RUNCRATE_API_KEY = apiKey
+  }
   if (route?.routeId === 'xai' || isXaiBaseUrl(baseUrl)) {
     env.XAI_API_KEY = apiKey
   }
@@ -1305,6 +1324,13 @@ export function applyProviderProfileToProcessEnv(
       const ambientKey = sanitizeApiKey(process.env.ORCAROUTER_API_KEY)
       if (ambientKey && !isManagedOrcarouterCredential(process.env)) {
         openAIProfileEnv.ORCAROUTER_API_KEY = ambientKey
+      }
+    }
+    if (!profile.apiKey &&
+      resolveRouteIdFromBaseUrl(normalizedProfileBaseUrl) === 'runcrate') {
+      const ambientKey = sanitizeApiKey(process.env.RUNCRATE_API_KEY)
+      if (ambientKey && !isManagedRuncrateCredential(process.env)) {
+        openAIProfileEnv.RUNCRATE_API_KEY = ambientKey
       }
     }
     const isAimlapiProfile =

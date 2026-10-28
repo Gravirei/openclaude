@@ -67,8 +67,14 @@ export const DEFAULT_STARTUP_PROVIDER_ENV_VAR =
 
 export const PROFILE_ORCAROUTER_KEY_SHA256 =
   'CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256'
+export const PROFILE_RUNCRATE_KEY_SHA256 =
+  'CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256'
 
 export function orcarouterCredentialFingerprint(value: string): string {
+  return createHash('sha256').update(sanitizeApiKey(value)?.trim() ?? '').digest('hex')
+}
+
+export function runcrateCredentialFingerprint(value: string): string {
   return createHash('sha256').update(sanitizeApiKey(value)?.trim() ?? '').digest('hex')
 }
 
@@ -77,6 +83,11 @@ export function isManagedOrcarouterCredential(env: NodeJS.ProcessEnv): boolean {
   // Credential origin is independent of selection markers: legacy profile
   // files have no plural profile id, and rebuilding an env can reset selection.
   return !!key && env[PROFILE_ORCAROUTER_KEY_SHA256] === orcarouterCredentialFingerprint(key)
+}
+
+export function isManagedRuncrateCredential(env: NodeJS.ProcessEnv): boolean {
+  const key = sanitizeApiKey(env.RUNCRATE_API_KEY)
+  return !!key && env[PROFILE_RUNCRATE_KEY_SHA256] === runcrateCredentialFingerprint(key)
 }
 
 const PROFILE_ENV_KEYS = [
@@ -139,6 +150,7 @@ const PROFILE_ENV_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'GMI_API_KEY',
   'ORCAROUTER_API_KEY',
+  'RUNCRATE_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'API_ROUTE_API_KEY',
@@ -199,6 +211,7 @@ export type ProviderProfile =
 
 export type ProfileEnv = {
   CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256?: string
+  CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256?: string
   ANTHROPIC_BASE_URL?: string
   ANTHROPIC_MODEL?: string
   ANTHROPIC_API_KEY?: string
@@ -247,6 +260,7 @@ export type ProfileEnv = {
   ATLAS_CLOUD_API_KEY?: string
   GMI_API_KEY?: string
   ORCAROUTER_API_KEY?: string
+  RUNCRATE_API_KEY?: string
   APISMART_API_KEY?: string
   API_ROUTE_API_KEY?: string
   CLINE_API_KEY?: string
@@ -1092,6 +1106,9 @@ export function buildOpenAIProfileEnv(options: {
       : {}),
     ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'orcarouter' && key
       ? { ORCAROUTER_API_KEY: key }
+      : {}),
+    ...(resolveRouteIdFromBaseUrl(resolvedBaseUrl) === 'runcrate' && key
+      ? { RUNCRATE_API_KEY: key }
       : {}),
     OPENAI_BASE_URL: resolvedBaseUrl,
     OPENAI_MODEL: normalizedModel,
@@ -2329,6 +2346,7 @@ export async function buildLaunchEnv(options: {
     'ATLAS_CLOUD_API_KEY',
     'GMI_API_KEY',
     'ORCAROUTER_API_KEY',
+    'RUNCRATE_API_KEY',
     'APISMART_API_KEY',
     'CONCENTRATE_API_KEY',
     'LLMTR_API_KEY',
@@ -2371,6 +2389,9 @@ export async function buildLaunchEnv(options: {
       continue
     }
     if (dedicatedKey === 'ORCAROUTER_API_KEY' && effectiveOpenAIRouteId !== 'orcarouter') {
+      continue
+    }
+    if (dedicatedKey === 'RUNCRATE_API_KEY' && effectiveOpenAIRouteId !== 'runcrate') {
       continue
     }
     if (dedicatedKey === 'CONCENTRATE_API_KEY' && effectiveOpenAIRouteId !== 'concentrate') {
@@ -2536,6 +2557,15 @@ export async function buildLaunchEnv(options: {
             ? sanitizeApiKey(persistedOpenAICredential.value)
             : undefined)
         : undefined
+    const persistedRuncrateProfileKey =
+      dedicatedKey === 'RUNCRATE_API_KEY' &&
+      effectiveOpenAIRouteId === 'runcrate' &&
+      resolveRouteIdFromBaseUrl(persistedOpenAIBaseUrl) === 'runcrate'
+        ? sanitizeApiKey(persistedEnv.RUNCRATE_API_KEY) ||
+          (persistedOpenAICredential?.kind === 'usable'
+            ? sanitizeApiKey(persistedOpenAICredential.value)
+            : undefined)
+        : undefined
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
@@ -2543,6 +2573,7 @@ export async function buildLaunchEnv(options: {
         persistedMergeGatewayProfileKey ||
         persistedCommandcodeProfileKey ||
         persistedOrcarouterProfileKey ||
+        persistedRuncrateProfileKey ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
         sanitizeApiKey(persistedEnv[dedicatedKey]) ||
         backfillLegacyApismartProfileKey ||
@@ -2553,6 +2584,11 @@ export async function buildLaunchEnv(options: {
         (persistedOrcarouterProfileKey ||
           (!sanitizeApiKey(processEnv.ORCAROUTER_API_KEY) && persistedEnv.ORCAROUTER_API_KEY))) {
         env[PROFILE_ORCAROUTER_KEY_SHA256] = orcarouterCredentialFingerprint(dedicatedValue)
+      }
+      if (dedicatedKey === 'RUNCRATE_API_KEY' &&
+        (persistedRuncrateProfileKey ||
+          (!sanitizeApiKey(processEnv.RUNCRATE_API_KEY) && persistedEnv.RUNCRATE_API_KEY))) {
+        env[PROFILE_RUNCRATE_KEY_SHA256] = runcrateCredentialFingerprint(dedicatedValue)
       }
     }
   }
@@ -2747,10 +2783,18 @@ export function applyProfileEnvToProcessEnv(
     sanitizeApiKey(targetEnv.ORCAROUTER_API_KEY) === sanitizeApiKey(nextEnv.ORCAROUTER_API_KEY)
       ? targetEnv[PROFILE_ORCAROUTER_KEY_SHA256]
       : undefined
+  const retainedRuncrateOrigin =
+    isManagedRuncrateCredential(targetEnv) &&
+    sanitizeApiKey(targetEnv.RUNCRATE_API_KEY) === sanitizeApiKey(nextEnv.RUNCRATE_API_KEY)
+      ? targetEnv[PROFILE_RUNCRATE_KEY_SHA256]
+      : undefined
   clearManagedProfileEnv(targetEnv)
   Object.assign(targetEnv, nextEnv)
   if (retainedOrcarouterOrigin) {
     targetEnv[PROFILE_ORCAROUTER_KEY_SHA256] = retainedOrcarouterOrigin
+  }
+  if (retainedRuncrateOrigin) {
+    targetEnv[PROFILE_RUNCRATE_KEY_SHA256] = retainedRuncrateOrigin
   }
 }
 
