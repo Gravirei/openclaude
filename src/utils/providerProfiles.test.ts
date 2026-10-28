@@ -6654,12 +6654,8 @@ test('a retargeted Runcrate launch never falls back to the persisted key', async
   // A saved route id can outlive a hand-edited/custom base URL. The canonical
   // shell URL still resolves to Runcrate, so only the retarget guard keeps the
   // saved key from following it.
-  const persisted = {
-    profile: buildProfile({
-      id: 'saved-runcrate', provider: 'runcrate',
-      baseUrl: 'https://saved-runcrate.example/v1',
-      model: 'deepseek-ai/DeepSeek-V4.1-Flash', apiKey: 'saved-runcrate-key',
-    }),
+  const persisted = JSON.parse(JSON.stringify({
+    profile: 'runcrate',
     env: {
       CLAUDE_CODE_PROVIDER_ROUTE_ID: 'runcrate',
       OPENAI_BASE_URL: 'https://saved-runcrate.example/v1',
@@ -6668,7 +6664,7 @@ test('a retargeted Runcrate launch never falls back to the persisted key', async
       OPENAI_API_KEY: 'saved-runcrate-key',
     },
     createdAt: new Date().toISOString(),
-  }
+  }))
   const env = await buildStartupEnvFromProfile({
     persisted,
     processEnv: { OPENAI_BASE_URL: 'https://api.runcrate.ai/v1' },
