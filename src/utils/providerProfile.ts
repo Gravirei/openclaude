@@ -2236,8 +2236,22 @@ export async function buildLaunchEnv(options: {
     (persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'runcrate' ||
       resolveRouteIdFromBaseUrl(persistedOpenAIBaseUrl) === 'runcrate') &&
     !isSameConfiguredEndpoint(env.OPENAI_BASE_URL, persistedOpenAIBaseUrl)
+  // A profile-applied Runcrate key also rides in the generic alias, and a pane
+  // can inherit it. Only a shell credential without Runcrate's managed marker
+  // may follow a retarget.
+  const shellCredentialSelection = resolveOpenAICredentialEnvSelection(processEnv)
+  const shellGenericIsManagedRuncrate =
+    retargetedRuncrateProfile &&
+    !!shellCredentialSelection &&
+    shellCredentialSelection.kind === 'usable' &&
+    isManagedRuncrateCredential(processEnv) &&
+    sanitizeApiKey(shellCredentialSelection.value) ===
+      sanitizeApiKey(processEnv.RUNCRATE_API_KEY)
+  const shellCredentialSource = shellGenericIsManagedRuncrate
+    ? { ...processEnv, OPENAI_API_KEY: undefined, OPENAI_API_KEYS: undefined }
+    : processEnv
   const openAICredential = resolveOpenAICredentialEnvOverride(
-    processEnv,
+    shellCredentialSource,
     retargetedMergeProfile || retargetedRuncrateProfile ? {} : persistedEnv,
   )
   if (openAICredential) {
@@ -2284,6 +2298,7 @@ export async function buildLaunchEnv(options: {
   // profile's own credential in would both hand a key to an endpoint it was not
   // configured for and discard a credential the user supplied for that endpoint.
   const isNoncanonicalAimlapiLaunch =
+    !retargetedRuncrateProfile &&
     effectiveOpenAIRouteId === 'aimlapi' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
@@ -2592,6 +2607,12 @@ export async function buildLaunchEnv(options: {
       retargetedRuncrateProfile && dedicatedKey === 'RUNCRATE_API_KEY'
         ? undefined
         : sanitizeApiKey(persistedEnv[dedicatedKey])
+    const shellDedicatedKey =
+      retargetedRuncrateProfile &&
+      dedicatedKey === 'RUNCRATE_API_KEY' &&
+      isManagedRuncrateCredential(processEnv)
+        ? undefined
+        : sanitizeApiKey(processEnv[dedicatedKey])
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
@@ -2600,7 +2621,7 @@ export async function buildLaunchEnv(options: {
         persistedCommandcodeProfileKey ||
         persistedOrcarouterProfileKey ||
         persistedRuncrateProfileKey ||
-        sanitizeApiKey(processEnv[dedicatedKey]) ||
+        shellDedicatedKey ||
         persistedDedicatedKey ||
         backfillLegacyApismartProfileKey ||
         backfillLegacyConcentrateProfileKey

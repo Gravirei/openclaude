@@ -6621,7 +6621,8 @@ for (const provider of ['runcrate', 'openai']) {
       join(testConfigDir!, '.openclaude-profile.json'), 'utf8',
     ))
     expect(persisted.env.RUNCRATE_API_KEY).toBe('selected-runcrate-key')
-    const { buildStartupEnvFromProfile } = await import('./providerProfile.js')
+    const { buildStartupEnvFromProfile, runcrateCredentialFingerprint } =
+      await import('./providerProfile.js')
     const env = await buildStartupEnvFromProfile({
       persisted, processEnv: { RUNCRATE_API_KEY: 'other-ambient-key' },
     })
@@ -6646,6 +6647,26 @@ for (const provider of ['runcrate', 'openai']) {
     })
     expect(retargetedWithShellKey.OPENAI_API_KEY).toBe('shell-key')
     expect(retargetedWithShellKey.RUNCRATE_API_KEY).toBeUndefined()
+    // A pane that inherited this profile's managed credential must not carry
+    // it through the dedicated or generic alias either.
+    const inherited = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: {
+        OPENAI_BASE_URL: 'https://other-endpoint.example/v1',
+        RUNCRATE_API_KEY: 'selected-runcrate-key',
+        OPENAI_API_KEY: 'selected-runcrate-key',
+        CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256:
+          runcrateCredentialFingerprint('selected-runcrate-key'),
+      },
+    })
+    expect(inherited.OPENAI_API_KEY).toBeUndefined()
+    expect(inherited.RUNCRATE_API_KEY).toBeUndefined()
+    // A noncanonical AIMLAPI launch is also a retarget, not a proxy relaunch.
+    const retargetedAimlapi = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: { OPENAI_BASE_URL: 'https://api.aimlapi.com/proxy' },
+    })
+    expect(retargetedAimlapi.OPENAI_API_KEY).toBeUndefined()
   })
 }
 
@@ -6655,7 +6676,7 @@ test('a retargeted Runcrate launch never falls back to the persisted key', async
   // shell URL still resolves to Runcrate, so only the retarget guard keeps the
   // saved key from following it.
   const persisted = JSON.parse(JSON.stringify({
-    profile: 'runcrate',
+    profile: 'openai',
     env: {
       CLAUDE_CODE_PROVIDER_ROUTE_ID: 'runcrate',
       OPENAI_BASE_URL: 'https://saved-runcrate.example/v1',
