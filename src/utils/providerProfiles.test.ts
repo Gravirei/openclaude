@@ -6667,6 +6667,19 @@ for (const provider of ['runcrate', 'openai']) {
       processEnv: { OPENAI_BASE_URL: 'https://api.aimlapi.com/proxy' },
     })
     expect(retargetedAimlapi.OPENAI_API_KEY).toBeUndefined()
+    for (const proxyBaseUrl of [
+      'https://gw.apismart.ai/proxy',
+      'https://global.api-route.com/proxy',
+    ]) {
+      const retargetedProxy = await buildStartupEnvFromProfile({
+        persisted,
+        processEnv: {
+          OPENAI_BASE_URL: proxyBaseUrl,
+          OPENAI_API_KEY: 'shell-key',
+        },
+      })
+      expect(retargetedProxy.OPENAI_API_KEY).toBe('shell-key')
+    }
   })
 }
 

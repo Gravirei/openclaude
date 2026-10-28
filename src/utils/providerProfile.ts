@@ -2298,7 +2298,6 @@ export async function buildLaunchEnv(options: {
   // profile's own credential in would both hand a key to an endpoint it was not
   // configured for and discard a credential the user supplied for that endpoint.
   const isNoncanonicalAimlapiLaunch =
-    !retargetedRuncrateProfile &&
     effectiveOpenAIRouteId === 'aimlapi' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalAimlapiInferenceBaseUrl(env.OPENAI_BASE_URL)
@@ -2326,14 +2325,19 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'api-route' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApiRouteInferenceBaseUrl(env.OPENAI_BASE_URL)
+  // A retargeted launch keeps no identity for the endpoint it now points at,
+  // so the route-agnostic precedence above already withheld the saved key.
+  // Applying these proxy rules would delete a shell credential the user
+  // supplied for that endpoint and then restore the saved one instead.
   const isNoncanonicalDedicatedOpenAILaunch =
-    isNoncanonicalAimlapiLaunch ||
-    isNoncanonicalApismartLaunch ||
-    isNoncanonicalConcentrateLaunch ||
-    isNoncanonicalLlmtrLaunch ||
-    isNoncanonicalMergeGatewayLaunch ||
-    isNoncanonicalCommandcodeLaunch ||
-    isNoncanonicalApiRouteLaunch
+    !retargetedRuncrateProfile &&
+    (isNoncanonicalAimlapiLaunch ||
+      isNoncanonicalApismartLaunch ||
+      isNoncanonicalConcentrateLaunch ||
+      isNoncanonicalLlmtrLaunch ||
+      isNoncanonicalMergeGatewayLaunch ||
+      isNoncanonicalCommandcodeLaunch ||
+      isNoncanonicalApiRouteLaunch)
   if (isNoncanonicalDedicatedOpenAILaunch) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
