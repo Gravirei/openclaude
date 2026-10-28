@@ -26,6 +26,7 @@ const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
   'CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256',
+  'CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
   'CLAUDE_CONFIG_DIR',
   'OPENCLAUDE_CONFIG_DIR',
@@ -87,6 +88,7 @@ const RESTORED_KEYS = [
   'ATLAS_CLOUD_API_KEY',
   'GMI_API_KEY',
   'ORCAROUTER_API_KEY',
+  'RUNCRATE_API_KEY',
   'APISMART_API_KEY',
   'APISMART_MODEL',
   'API_ROUTE_API_KEY',
@@ -6558,5 +6560,91 @@ for (const provider of ['orcarouter', 'openai']) {
     expect(resolveRouteCredentialValue({
       routeId: 'orcarouter', baseUrl: saved.baseUrl, processEnv: env,
     })).toBe('selected-orca-key')
+  })
+}
+
+test('keyless canonical Runcrate profile retains the dedicated shell credential', async () => {
+  const { applyProviderProfileToProcessEnv } = await importFreshProviderProfileModules()
+  process.env.RUNCRATE_API_KEY = 'ambient-runcrate-key'
+  const saved = buildProfile({
+    provider: 'openai', baseUrl: 'https://api.runcrate.ai/v1',
+    model: 'deepseek-ai/DeepSeek-V4.1-Flash', apiKey: undefined,
+  })
+  applyProviderProfileToProcessEnv(saved)
+  expect(resolveRouteCredentialValue({
+    routeId: 'runcrate', baseUrl: saved.baseUrl,
+  })).toBe('ambient-runcrate-key')
+  applyProviderProfileToProcessEnv(saved)
+  expect(process.env.RUNCRATE_API_KEY).toBe('ambient-runcrate-key')
+  applyProviderProfileToProcessEnv({ ...saved, baseUrl: 'https://custom.example/v1' })
+  expect(process.env.RUNCRATE_API_KEY).toBeUndefined()
+})
+
+// Removing a saved Runcrate key must not let the stale managed credential keep
+// authenticating the keyless selection that follows it.
+test.each([false, true])('a keyless Runcrate selection rejects another profile key (generic removed: %s)', async removeGeneric => {
+  const { setActiveProviderProfile } = await importFreshProviderProfileModules()
+  const keyed = buildProfile({ id: 'keyed-runcrate', provider: 'runcrate',
+    baseUrl: 'https://api.runcrate.ai/v1', model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+    apiKey: 'account-a-key' })
+  const keyless = { ...keyed, id: 'keyless-runcrate', apiKey: undefined }
+  saveMockGlobalConfig(current => ({ ...current, providerProfiles: [keyed, keyless] }))
+  setActiveProviderProfile(keyed.id, { configDir: testConfigDir! })
+  if (removeGeneric) delete process.env.OPENAI_API_KEY
+  setActiveProviderProfile(keyless.id, { configDir: testConfigDir! })
+  expect(process.env.RUNCRATE_API_KEY).toBeUndefined()
+  expect(resolveRouteCredentialValue({ routeId: 'runcrate', baseUrl: keyless.baseUrl }))
+    .toBeUndefined()
+  const persisted = JSON.parse(readFileSync(join(testConfigDir!, '.openclaude-profile.json'), 'utf8'))
+  expect(persisted.env.RUNCRATE_API_KEY).toBeUndefined()
+})
+
+for (const provider of ['runcrate', 'openai']) {
+  test(`${provider} Runcrate profile owns its credential through apply, persist and relaunch`, async () => {
+    const { setActiveProviderProfile, applyActiveProviderProfileFromConfig } =
+      await importFreshProviderProfileModules()
+    const saved = buildProfile({
+      provider, apiKey: 'selected-runcrate-key',
+      baseUrl: 'https://api.runcrate.ai/v1', model: 'deepseek-ai/DeepSeek-V4.1-Flash',
+    })
+    saveMockGlobalConfig(current => ({ ...current, providerProfiles: [saved] }))
+    process.env.RUNCRATE_API_KEY = 'ambient-parent-key'
+    setActiveProviderProfile(saved.id, { configDir: testConfigDir! })
+    expect(resolveRouteCredentialValue({
+      routeId: 'runcrate', baseUrl: saved.baseUrl,
+    })).toBe('selected-runcrate-key')
+    process.env.RUNCRATE_API_KEY = 'drifted-key'
+    expect(applyActiveProviderProfileFromConfig()?.id).toBe(saved.id)
+    expect(process.env.RUNCRATE_API_KEY).toBe('selected-runcrate-key')
+
+    const persisted = JSON.parse(readFileSync(
+      join(testConfigDir!, '.openclaude-profile.json'), 'utf8',
+    ))
+    expect(persisted.env.RUNCRATE_API_KEY).toBe('selected-runcrate-key')
+    const { buildStartupEnvFromProfile } = await import('./providerProfile.js')
+    const env = await buildStartupEnvFromProfile({
+      persisted, processEnv: { RUNCRATE_API_KEY: 'other-ambient-key' },
+    })
+    expect(resolveRouteCredentialValue({
+      routeId: 'runcrate', baseUrl: saved.baseUrl, processEnv: env,
+    })).toBe('selected-runcrate-key')
+
+    // A shell URL retarget must not forward the saved key to another endpoint.
+    const retargeted = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: { OPENAI_BASE_URL: 'https://other-endpoint.example/v1' },
+    })
+    expect(retargeted.RUNCRATE_API_KEY).toBeUndefined()
+    expect(retargeted.OPENAI_API_KEY).toBeUndefined()
+    // An explicit shell credential still follows the retargeted endpoint.
+    const retargetedWithShellKey = await buildStartupEnvFromProfile({
+      persisted,
+      processEnv: {
+        OPENAI_BASE_URL: 'https://other-endpoint.example/v1',
+        OPENAI_API_KEY: 'shell-key',
+      },
+    })
+    expect(retargetedWithShellKey.OPENAI_API_KEY).toBe('shell-key')
+    expect(retargetedWithShellKey.RUNCRATE_API_KEY).toBeUndefined()
   })
 }

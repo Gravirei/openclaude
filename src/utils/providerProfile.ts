@@ -1,5 +1,5 @@
 import { getGeminiVertexProjectId, geminiVertexAdcWillResolveProject } from './geminiAuth.js'
-import { createHash } from 'node:crypto'
+import { createHmac } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -70,12 +70,23 @@ export const PROFILE_ORCAROUTER_KEY_SHA256 =
 export const PROFILE_RUNCRATE_KEY_SHA256 =
   'CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256'
 
+// Credential-keyed fingerprint for provenance tracking, not password storage:
+// it only answers "did this env key come from the saved profile", and must stay
+// deterministic because a relaunched child compares it against the env it
+// inherited. Keying the digest by the credential keeps it one-way without
+// treating the value as a password.
+function managedCredentialFingerprint(value: string): string {
+  return createHmac('sha256', sanitizeApiKey(value)?.trim() ?? '')
+    .update('openclaude:managed-credential-fingerprint:v1')
+    .digest('hex')
+}
+
 export function orcarouterCredentialFingerprint(value: string): string {
-  return createHash('sha256').update(sanitizeApiKey(value)?.trim() ?? '').digest('hex')
+  return managedCredentialFingerprint(value)
 }
 
 export function runcrateCredentialFingerprint(value: string): string {
-  return createHash('sha256').update(sanitizeApiKey(value)?.trim() ?? '').digest('hex')
+  return managedCredentialFingerprint(value)
 }
 
 export function isManagedOrcarouterCredential(env: NodeJS.ProcessEnv): boolean {
@@ -93,6 +104,7 @@ export function isManagedRuncrateCredential(env: NodeJS.ProcessEnv): boolean {
 const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_GEMINI_VERTEX',
   PROFILE_ORCAROUTER_KEY_SHA256,
+  PROFILE_RUNCRATE_KEY_SHA256,
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
@@ -2217,9 +2229,16 @@ export async function buildLaunchEnv(options: {
     (persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'merge-gateway' ||
       isCanonicalMergeGatewayInferenceBaseUrl(persistedOpenAIBaseUrl)) &&
     !isCanonicalMergeGatewayInferenceBaseUrl(env.OPENAI_BASE_URL)
+  // A saved Runcrate profile mirrors its dedicated key into the generic
+  // OPENAI_API_KEY alias. A shell URL retarget must not hand that saved key to
+  // the new endpoint; only an explicit shell credential may follow the URL.
+  const retargetedRuncrateProfile =
+    (persistedEnv.CLAUDE_CODE_PROVIDER_ROUTE_ID === 'runcrate' ||
+      resolveRouteIdFromBaseUrl(persistedOpenAIBaseUrl) === 'runcrate') &&
+    !isSameConfiguredEndpoint(env.OPENAI_BASE_URL, persistedOpenAIBaseUrl)
   const openAICredential = resolveOpenAICredentialEnvOverride(
     processEnv,
-    retargetedMergeProfile ? {} : persistedEnv,
+    retargetedMergeProfile || retargetedRuncrateProfile ? {} : persistedEnv,
   )
   if (openAICredential) {
     env[openAICredential.envVar] = openAICredential.value

@@ -946,6 +946,11 @@ function hostDedicatedCredentialsAligned(
     isManagedOrcarouterCredential(processEnv)) {
     return false
   }
+  if (!profile.apiKey &&
+    resolveRouteIdFromBaseUrl(profile.baseUrl) === 'runcrate' &&
+    isManagedRuncrateCredential(processEnv)) {
+    return false
+  }
   const dedicated = getHostDedicatedCredentialEnv(
     profile.baseUrl,
     profile.apiKey ?? '',
@@ -1607,6 +1612,7 @@ export function applyProviderProfileToProcessEnv(
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
   rememberManagedOrcarouterCredential(profile)
+  rememberManagedRuncrateCredential(profile)
 }
 
 export function applyActiveProviderProfileFromConfig(
@@ -1647,6 +1653,7 @@ export function applyActiveProviderProfileFromConfig(
   // Bootstrap older inherited environments while the matching saved keyed
   // record is available; new environments already carry their fingerprint.
   rememberManagedOrcarouterCredential(activeProfile, processEnv)
+  rememberManagedRuncrateCredential(activeProfile, processEnv)
 
   const isCurrentEnvProfileManaged =
     processEnv[PROFILE_ENV_APPLIED_FLAG] === '1' &&
@@ -1765,6 +1772,7 @@ export function updateProviderProfile(
 
     wasUpdated = true
     rememberManagedOrcarouterCredential(currentProfiles[profileIndex]!)
+    rememberManagedRuncrateCredential(currentProfiles[profileIndex]!)
 
     const nextProfiles = [...currentProfiles]
     nextProfiles[profileIndex] = updatedProfile
