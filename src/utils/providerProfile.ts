@@ -2325,58 +2325,62 @@ export async function buildLaunchEnv(options: {
     effectiveOpenAIRouteId === 'api-route' &&
     !!env.OPENAI_BASE_URL?.trim() &&
     !isCanonicalApiRouteInferenceBaseUrl(env.OPENAI_BASE_URL)
-  // A retargeted launch keeps no identity for the endpoint it now points at,
-  // so the route-agnostic precedence above already withheld the saved key.
-  // Applying these proxy rules would delete a shell credential the user
-  // supplied for that endpoint and then restore the saved one instead.
   const isNoncanonicalDedicatedOpenAILaunch =
-    !retargetedRuncrateProfile &&
-    (isNoncanonicalAimlapiLaunch ||
-      isNoncanonicalApismartLaunch ||
-      isNoncanonicalConcentrateLaunch ||
-      isNoncanonicalLlmtrLaunch ||
-      isNoncanonicalMergeGatewayLaunch ||
-      isNoncanonicalCommandcodeLaunch ||
-      isNoncanonicalApiRouteLaunch)
-  if (isNoncanonicalDedicatedOpenAILaunch) {
+    isNoncanonicalAimlapiLaunch ||
+    isNoncanonicalApismartLaunch ||
+    isNoncanonicalConcentrateLaunch ||
+    isNoncanonicalLlmtrLaunch ||
+    isNoncanonicalMergeGatewayLaunch ||
+    isNoncanonicalCommandcodeLaunch ||
+    isNoncanonicalApiRouteLaunch
+  if (isNoncanonicalDedicatedOpenAILaunch || retargetedRuncrateProfile) {
     delete env.OPENAI_API_KEY
     delete env.OPENAI_API_KEYS
-    // AIMLAPI and ApiSmart may retain a user-configured proxy credential in
-    // their persisted generic OpenAI field. Concentrate is different: its
-    // dedicated credential is never valid off the canonical endpoint, and
-    // older profiles could have stored that same secret under either generic
-    // alias. Do not resurrect it for a noncanonical Concentrate launch.
-    if (
+    if (retargetedRuncrateProfile) {
+      // A retargeted launch keeps no identity for the endpoint it now points
+      // at, so only the explicit shell credential may follow it.
+      const shellCredential = resolveOpenAICredentialEnvSelection(shellCredentialSource)
+      if (shellCredential?.kind === 'usable') {
+        env[shellCredential.envVar] = shellCredential.value
+      }
+    } else if (
       !isNoncanonicalConcentrateLaunch &&
       !isNoncanonicalLlmtrLaunch &&
       !isNoncanonicalMergeGatewayLaunch &&
       !isNoncanonicalCommandcodeLaunch
     ) {
+      // AIMLAPI and ApiSmart may retain a user-configured proxy credential in
+      // their persisted generic OpenAI field. Concentrate is different: its
+      // dedicated credential is never valid off the canonical endpoint, and
+      // older profiles could have stored that same secret under either generic
+      // alias. Do not resurrect it for a noncanonical Concentrate launch.
       const persistedCredential = resolveOpenAICredentialEnvSelection(persistedEnv)
       if (persistedCredential) {
         env[persistedCredential.envVar] = persistedCredential.value
       }
     }
-    // Custom authentication is a second credential channel, not just transport
-    // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
-    // credential whenever OPENAI_AUTH_HEADER names a header. The selections
-    // above prefer the live shell value, so without this an ambient canonical
-    // secret would still reach the proxy through custom auth. Re-source the
-    // whole trio from the profile's OWN persisted env and drop ambient values;
-    // the three are applied as a unit so a shell header name can never activate
-    // a value the profile did not configure.
-    delete env.OPENAI_AUTH_HEADER
-    delete env.OPENAI_AUTH_SCHEME
-    delete env.OPENAI_AUTH_HEADER_VALUE
-    if (usePersistedOpenAIConfig) {
-      if (persistedOpenAIAuthHeader) {
-        env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
-      }
-      if (persistedOpenAIAuthScheme) {
-        env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
-      }
-      if (persistedOpenAIAuthHeaderValue) {
-        env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+    if (!retargetedRuncrateProfile) {
+      // Custom authentication is a second credential channel, not just transport
+      // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
+      // credential whenever OPENAI_AUTH_HEADER names a header. The selections
+      // above prefer the live shell value, so without this an ambient canonical
+      // secret would still reach the proxy through custom auth. Re-source the
+      // whole trio from the profile's OWN persisted env and drop ambient values;
+      // the three are applied as a unit so a shell header name can never activate
+      // a value the profile did not configure.
+      delete env.OPENAI_AUTH_HEADER
+      delete env.OPENAI_AUTH_SCHEME
+      delete env.OPENAI_AUTH_HEADER_VALUE
+      if (usePersistedOpenAIConfig) {
+        if (persistedOpenAIAuthHeader) {
+          env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
+        }
+        if (persistedOpenAIAuthScheme) {
+          env.OPENAI_AUTH_SCHEME = persistedOpenAIAuthScheme
+        }
+        if (persistedOpenAIAuthHeaderValue) {
+          env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+        }
       }
     }
   }
@@ -2656,9 +2660,13 @@ export async function buildLaunchEnv(options: {
   // and is sent on every request. So an ambient value must be withheld from a
   // non-canonical aimlapi/apismart launch exactly like the API key and the
   // custom-auth trio; only headers the profile itself persisted are restored.
-  const customHeaders = isNoncanonicalDedicatedOpenAILaunch
-    ? persistedCustomHeaders
-    : shellCustomHeaders || persistedCustomHeaders
+  // A retargeted Runcrate launch keeps no headers either: both ambient and
+  // persisted values belong to the endpoint the profile was saved for.
+  const customHeaders = retargetedRuncrateProfile
+    ? undefined
+    : isNoncanonicalDedicatedOpenAILaunch
+      ? persistedCustomHeaders
+      : shellCustomHeaders || persistedCustomHeaders
   if (customHeaders) {
     env.ANTHROPIC_CUSTOM_HEADERS = customHeaders
   } else {

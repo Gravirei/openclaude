@@ -6696,13 +6696,20 @@ test('a retargeted Runcrate launch never falls back to the persisted key', async
       OPENAI_MODEL: 'deepseek-ai/DeepSeek-V4.1-Flash',
       RUNCRATE_API_KEY: 'saved-runcrate-key',
       OPENAI_API_KEY: 'saved-runcrate-key',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Proxy-Auth: saved-secret',
     },
     createdAt: new Date().toISOString(),
   }))
   const env = await buildStartupEnvFromProfile({
     persisted,
-    processEnv: { OPENAI_BASE_URL: 'https://api.runcrate.ai/v1' },
+    processEnv: {
+      OPENAI_BASE_URL: 'https://api.runcrate.ai/v1',
+      ANTHROPIC_CUSTOM_HEADERS: 'X-Proxy-Auth: inherited-secret',
+    },
   })
   expect(env.RUNCRATE_API_KEY).toBeUndefined()
   expect(env.OPENAI_API_KEY).toBeUndefined()
+  // Custom headers are a credential channel too: neither the inherited nor the
+  // profile's saved value may follow the retargeted endpoint.
+  expect(env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
 })
