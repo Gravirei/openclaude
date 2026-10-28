@@ -6648,3 +6648,31 @@ for (const provider of ['runcrate', 'openai']) {
     expect(retargetedWithShellKey.RUNCRATE_API_KEY).toBeUndefined()
   })
 }
+
+test('a retargeted Runcrate launch never falls back to the persisted key', async () => {
+  const { buildStartupEnvFromProfile } = await import('./providerProfile.js')
+  // A saved route id can outlive a hand-edited/custom base URL. The canonical
+  // shell URL still resolves to Runcrate, so only the retarget guard keeps the
+  // saved key from following it.
+  const persisted = {
+    profile: buildProfile({
+      id: 'saved-runcrate', provider: 'runcrate',
+      baseUrl: 'https://saved-runcrate.example/v1',
+      model: 'deepseek-ai/DeepSeek-V4.1-Flash', apiKey: 'saved-runcrate-key',
+    }),
+    env: {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'runcrate',
+      OPENAI_BASE_URL: 'https://saved-runcrate.example/v1',
+      OPENAI_MODEL: 'deepseek-ai/DeepSeek-V4.1-Flash',
+      RUNCRATE_API_KEY: 'saved-runcrate-key',
+      OPENAI_API_KEY: 'saved-runcrate-key',
+    },
+    createdAt: new Date().toISOString(),
+  }
+  const env = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: { OPENAI_BASE_URL: 'https://api.runcrate.ai/v1' },
+  })
+  expect(env.RUNCRATE_API_KEY).toBeUndefined()
+  expect(env.OPENAI_API_KEY).toBeUndefined()
+})

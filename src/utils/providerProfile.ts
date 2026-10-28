@@ -2578,6 +2578,7 @@ export async function buildLaunchEnv(options: {
         : undefined
     const persistedRuncrateProfileKey =
       dedicatedKey === 'RUNCRATE_API_KEY' &&
+      !retargetedRuncrateProfile &&
       effectiveOpenAIRouteId === 'runcrate' &&
       resolveRouteIdFromBaseUrl(persistedOpenAIBaseUrl) === 'runcrate'
         ? sanitizeApiKey(persistedEnv.RUNCRATE_API_KEY) ||
@@ -2585,6 +2586,12 @@ export async function buildLaunchEnv(options: {
             ? sanitizeApiKey(persistedOpenAICredential.value)
             : undefined)
         : undefined
+    // A retargeted Runcrate launch may only use an explicit shell credential;
+    // the saved profile key belongs to the endpoint it was saved for.
+    const persistedDedicatedKey =
+      retargetedRuncrateProfile && dedicatedKey === 'RUNCRATE_API_KEY'
+        ? undefined
+        : sanitizeApiKey(persistedEnv[dedicatedKey])
     const dedicatedValue = withholdAmbientDedicatedKey
       ? sanitizeApiKey(persistedEnv[dedicatedKey])
       : backfillDedicatedFromOpenAI ||
@@ -2594,7 +2601,7 @@ export async function buildLaunchEnv(options: {
         persistedOrcarouterProfileKey ||
         persistedRuncrateProfileKey ||
         sanitizeApiKey(processEnv[dedicatedKey]) ||
-        sanitizeApiKey(persistedEnv[dedicatedKey]) ||
+        persistedDedicatedKey ||
         backfillLegacyApismartProfileKey ||
         backfillLegacyConcentrateProfileKey
     if (dedicatedValue) {
