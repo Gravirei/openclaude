@@ -6816,3 +6816,46 @@ test('a retargeted Runcrate launch drops the saved custom-auth trio', async () =
   expect(explicit.OPENAI_AUTH_SCHEME).toBe('bearer')
   expect(explicit.OPENAI_AUTH_HEADER_VALUE).toBe('shell-auth-secret')
 })
+
+test('a canonical Runcrate restore marks its auth trio for child retargets', async () => {
+  const { buildLaunchEnv, buildStartupEnvFromProfile } =
+    await import('./providerProfile.js')
+  const persisted = JSON.parse(JSON.stringify({
+    profile: 'openai',
+    env: {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'runcrate',
+      OPENAI_BASE_URL: 'https://api.runcrate.ai/v1',
+      OPENAI_MODEL: 'deepseek-ai/DeepSeek-V4.1-Flash',
+      RUNCRATE_API_KEY: 'saved-runcrate-key',
+      OPENAI_API_KEY: 'saved-runcrate-key',
+      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'saved-auth-secret',
+    },
+    createdAt: new Date().toISOString(),
+  }))
+  const canonical = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: {},
+  })
+  expect(canonical.OPENAI_AUTH_HEADER).toBe('X-Proxy-Auth')
+  expect(canonical.OPENAI_AUTH_SCHEME).toBe('raw')
+  expect(canonical.OPENAI_AUTH_HEADER_VALUE).toBe('saved-auth-secret')
+  expect(canonical.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBe('1')
+
+  // The child inherits the marker with the canonical env, so its retarget can
+  // drop the saved trio without guessing from the values.
+  const child = await buildLaunchEnv({
+    profile: 'openai',
+    persisted,
+    goal: 'coding',
+    processEnv: {
+      ...canonical,
+      OPENAI_BASE_URL: 'https://other-endpoint.example/v1',
+    },
+  })
+  expect(child.OPENAI_AUTH_HEADER).toBeUndefined()
+  expect(child.OPENAI_AUTH_SCHEME).toBeUndefined()
+  expect(child.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+  expect(child.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBeUndefined()
+})
