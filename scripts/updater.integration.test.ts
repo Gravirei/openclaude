@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const repo = join(import.meta.dir, '..')
@@ -10,7 +10,7 @@ const currentVersion = JSON.parse(readFileSync(join(repo, 'package.json'), 'utf8
 const targetVersion = `${Number(currentVersion.split('.')[0]) + 1}.0.0`
 const preload = join(import.meta.dir, 'fixtures/updater-preload.mjs')
 
-type Event = { type: string; file?: string; args: string[]; pid?: number }
+type Event = { type: string; file?: string; args: string[]; pid?: number; resolved?: string }
 
 function fixture(owner = 'npm') {
   if (!existsSync(cli)) throw new Error('Run bun run build before updater integration tests')
@@ -99,7 +99,22 @@ describe('published updater under Node', () => {
         [owner, [owner === 'npm' ? 'install' : 'add', '-g', `@twigpine/openclaude@${targetVersion}`]],
       ])
       if (owner === 'bun') expect(existsSync(join(f.root, 'npm-prefix'))).toBe(false)
-      if (windows) expect(events.some(e => e.type === 'command' && e.file === 'cmd.exe')).toBe(true)
+      if (windows) {
+        const spec = `@twigpine/openclaude@${targetVersion}`
+        const dispatched = events.filter(e => e.type === 'command' && e.args.join(' ').includes(spec))
+        const isCmd = (e: Event) => win32.basename(e.file || '').toLowerCase() === 'cmd.exe'
+        expect(dispatched).toHaveLength(2)
+        expect(dispatched.every(e => owner === 'npm' ? isCmd(e) : e.file === 'bun')).toBe(true)
+        expect(events.filter(e => e.type === 'command' && isCmd(e) && e.args.join(' ').includes('@twigpine/openclaude@stable'))).toHaveLength(2)
+        // On Windows, production cross-spawn has already wrapped npm before
+        // interception. Only the POSIX simulation generates parser metadata.
+        if (process.platform !== 'win32') {
+          const parsed = events.filter(e => e.type === 'parsed-command' && e.args.join(' ').includes(spec))
+          expect(parsed).toHaveLength(2)
+          expect(dispatched.map(e => [e.file, e.args])).toEqual(parsed.map(e => [e.file, e.args]))
+          if (owner === 'bun') expect(parsed.every(e => e.resolved === join(f.root, 'bin/bun.exe'))).toBe(true)
+        }
+      }
     } finally { await f.close() }
   }, 40_000)
 
@@ -145,15 +160,18 @@ describe('published updater under Node', () => {
     } finally { await f.close() }
   }, 40_000)
 
-  test.each(['timeout', 'output-limit'])('retains the lock while lifecycle work survives an installer %s', async failure => {
+  test.each(['timeout', 'output-limit', 'timeout-kill-failure', 'output-limit-kill-failure'])('retains the lock while lifecycle work survives an installer %s', async failure => {
     const f = fixture()
     try {
       const first = await f.start({ UPDATER_TEST_UNCERTAIN: failure })
       expect(first.code, first.stderr).toBe(1)
-      expect(first.stderr).toContain('Failed to install update')
+      expect(first.stderr).toContain('Installer may still be running')
+      expect(first.stderr).toContain('README update-lock recovery instructions')
+      expect(first.stderr).not.toContain('npm install')
       const heartbeat = () => existsSync(join(f.root, 'heartbeat')) ? readFileSync(join(f.root, 'heartbeat'), 'utf8').length : 0
       const before = heartbeat()
       await waitFor(() => heartbeat() > before)
+      if (failure.endsWith('-kill-failure')) expect(f.events().some(e => e.type === 'kill-error')).toBe(true)
       expect(existsSync(f.lock)).toBe(true)
       const install = f.events().filter(e => e.type === 'install')
       expect(install).toHaveLength(1)

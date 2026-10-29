@@ -57,6 +57,10 @@ export type InstallStatus =
   | 'no_permissions'
   | 'install_failed'
   | 'in_progress'
+  | 'termination_uncertain'
+
+export const UPDATE_RECOVERY_MESSAGE =
+  'Installer may still be running. Wait until all updater and package-manager processes have stopped, then follow the README update-lock recovery instructions.'
 
 export type AutoUpdaterResult = {
   version: string | null
@@ -546,10 +550,12 @@ To fix this issue:
     // stopped. Keep ownership for the documented manual recovery procedure.
     if (
       installResult.error === 'maxBuffer exceeded' ||
-      installResult.error?.startsWith('Command timed out after ')
+      installResult.error?.startsWith('Command timed out after ') ||
+      installResult.error?.startsWith('kill ')
     ) {
       releaseLockOnCompletion = false
       logForDebugging('Auto-updater: installer termination uncertain; retaining update lock')
+      return 'termination_uncertain'
     }
     if (installResult.code !== 0) {
       const error = new AutoUpdaterError(

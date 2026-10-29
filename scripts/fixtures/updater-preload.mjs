@@ -21,6 +21,8 @@ process.argv[1] = owner === 'bun'
 // Exercise the real Windows parser even on POSIX; this preload is process-local.
 let windowsParse
 if (process.env.UPDATER_TEST_WINDOWS_WRAPPERS) {
+  fs.mkdirSync(path.join(root, 'bin'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'bin/bun.exe'), '')
   const platform = Object.getOwnPropertyDescriptor(process, 'platform')
   try {
     Object.defineProperty(process, 'platform', { value: 'win32' })
@@ -46,11 +48,22 @@ globalThis.setTimeout = (callback, delay, ...args) => {
 const spawn = childProcess.spawn
 childProcess.spawn = (file, args = [], options = {}) => {
   const availability = /which (npm|bun)$/.exec([file, ...args].join(' '))
-  if (windowsParse && file === 'npm') {
-    const parsed = windowsParse(file, args, options)
-    file = parsed.command
-    args = parsed.args
-    options = parsed.options
+  if (windowsParse && (file === 'npm' || file === 'bun')) {
+    const pathExt = process.env.PATHEXT
+    try {
+      // Bun ships a native .exe, so its Windows route must stay shell-free.
+      if (file === 'bun') process.env.PATHEXT = '.exe'
+      const parsed = windowsParse(file, args, file === 'bun'
+        ? { ...options, env: { ...process.env, PATH: path.join(root, 'bin') } }
+        : options)
+      log({ type: 'parsed-command', file: parsed.command, args: parsed.args, resolved: parsed.file })
+      file = parsed.command
+      args = parsed.args
+      options = { ...parsed.options, env: options.env }
+    } finally {
+      if (pathExt === undefined) delete process.env.PATHEXT
+      else process.env.PATHEXT = pathExt
+    }
   } else if (windowsParse && availability) {
     file = 'cmd.exe'
     args = ['/d', '/s', '/c', `"where.exe ${availability[1]}"`]
@@ -81,16 +94,25 @@ childProcess.spawn = (file, args = [], options = {}) => {
     install = true
     log({ type: 'install', file, args, pid: process.pid })
     code = Number(process.env.UPDATER_TEST_INSTALL_EXIT || 0)
-    shortenInstallTimeout = process.env.UPDATER_TEST_UNCERTAIN === 'timeout'
+    shortenInstallTimeout = process.env.UPDATER_TEST_UNCERTAIN?.startsWith('timeout')
   } else {
     code = 1 // Never run incidental diagnostics or completion commands on the host.
   }
   const mode = install
-    ? process.env.UPDATER_TEST_UNCERTAIN || (process.env.UPDATER_TEST_HOLD ? 'hold' : 'result')
+    ? process.env.UPDATER_TEST_UNCERTAIN?.replace('-kill-failure', '') || (process.env.UPDATER_TEST_HOLD ? 'hold' : 'result')
     : 'result'
-  return spawn(process.execPath, [
+  const child = spawn(process.execPath, [
     fileURLToPath(new URL('./updater-process.mjs', import.meta.url)), mode, String(code), output,
   ], { ...options, shell: false, windowsVerbatimArguments: false })
+  if (install && process.env.UPDATER_TEST_UNCERTAIN?.endsWith('-kill-failure')) {
+    // Exercise Node's real synchronous kill-error event before the wrapper's
+    // timeout/output-limit result settles, without signaling a foreign process.
+    child._handle.kill = () => {
+      log({ type: 'kill-error', args: [] })
+      return process.binding('uv').UV_EPERM
+    }
+  }
+  return child
 }
 
 const writeFile = promises.writeFile

@@ -66,5 +66,7 @@ test('disabled initial and timer callbacks skip version lookups, with an enabled
     initial: { latest: 0, maximum: 0 },
     timer: { latest: 0, maximum: 0 },
     enabled: { latest: 1, maximum: 1 },
+    recoveryNotice: true,
+    ordinaryNotice: true,
   })
 }, 10_000) // Longer than the child deadline to allow assertion and cleanup.

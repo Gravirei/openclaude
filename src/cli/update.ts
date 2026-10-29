@@ -4,6 +4,7 @@ import {
   getLatestVersion,
   type InstallStatus,
   installGlobalPackage,
+  UPDATE_RECOVERY_MESSAGE,
 } from 'src/utils/autoUpdater.js'
 import { regenerateCompletionCache } from 'src/utils/completionCache.js'
 import {
@@ -437,6 +438,10 @@ export async function update() {
         process.stderr.write('Try running with sudo or fix npm permissions\n')
         process.stderr.write(getGlobalUpdateFailureHint())
       }
+      await gracefulShutdown(1)
+      break
+    case 'termination_uncertain':
+      process.stderr.write(`Error: ${UPDATE_RECOVERY_MESSAGE}\n`)
       await gracefulShutdown(1)
       break
     case 'install_failed':
