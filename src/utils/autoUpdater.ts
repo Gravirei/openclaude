@@ -546,12 +546,14 @@ To fix this issue:
       getGlobalInstallArgs(packageManager, packageSpec),
       { cwd: homedir() },
     )
-    // These errors can resolve before the manager and its lifecycle children have
-    // stopped. Keep ownership for the documented manual recovery procedure.
+    // Early executor errors and signal-terminated managers do not establish that
+    // lifecycle children stopped. The executor reports signal names in error.
+    // Keep ownership for the documented manual recovery procedure.
     if (
       installResult.error === 'maxBuffer exceeded' ||
       installResult.error?.startsWith('Command timed out after ') ||
-      installResult.error?.startsWith('kill ')
+      installResult.error?.startsWith('kill ') ||
+      installResult.error?.startsWith('SIG')
     ) {
       releaseLockOnCompletion = false
       logForDebugging('Auto-updater: installer termination uncertain; retaining update lock')

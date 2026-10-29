@@ -29,7 +29,7 @@ if (mode === 'result') {
   fs.writeFileSync(path.join(root, 'lifecycle-ready'), '')
   hold(() => fs.appendFileSync(path.join(root, 'heartbeat'), 'x'))
 } else {
-  if (mode === 'timeout' || mode === 'output-limit') {
+  if (mode === 'timeout' || mode === 'output-limit' || mode.startsWith('SIG')) {
     spawn(process.execPath, [fileURLToPath(import.meta.url), 'lifecycle', '0'], {
       stdio: 'ignore', env: process.env,
     })
@@ -37,6 +37,7 @@ if (mode === 'result') {
       await new Promise(resolve => setTimeout(resolve, 5))
     }
     if (mode === 'output-limit') fs.writeSync(1, Buffer.alloc(1_100_000, 'x'))
+    if (mode.startsWith('SIG')) fs.writeSync(1, 'lifecycle started\n')
   }
   hold()
 }

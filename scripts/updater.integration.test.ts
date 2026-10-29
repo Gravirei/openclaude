@@ -160,7 +160,7 @@ describe('published updater under Node', () => {
     } finally { await f.close() }
   }, 40_000)
 
-  test.each(['timeout', 'output-limit', 'timeout-kill-failure', 'output-limit-kill-failure'])('retains the lock while lifecycle work survives an installer %s', async failure => {
+  test.each(['timeout', 'output-limit', 'timeout-kill-failure', 'output-limit-kill-failure', 'SIGTERM', 'SIGKILL'])('retains the lock while lifecycle work survives an installer %s', async failure => {
     const f = fixture()
     try {
       const first = await f.start({ UPDATER_TEST_UNCERTAIN: failure })

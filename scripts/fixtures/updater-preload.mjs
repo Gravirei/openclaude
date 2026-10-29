@@ -104,6 +104,10 @@ childProcess.spawn = (file, args = [], options = {}) => {
   const child = spawn(process.execPath, [
     fileURLToPath(new URL('./updater-process.mjs', import.meta.url)), mode, String(code), output,
   ], { ...options, shell: false, windowsVerbatimArguments: false })
+  if (install && mode.startsWith('SIG')) {
+    // Signal only the manager after its independent lifecycle worker is active.
+    child.stdout.once('data', () => child.kill(mode))
+  }
   if (install && process.env.UPDATER_TEST_UNCERTAIN?.endsWith('-kill-failure')) {
     // Exercise Node's real synchronous kill-error event before the wrapper's
     // timeout/output-limit result settles, without signaling a foreign process.
