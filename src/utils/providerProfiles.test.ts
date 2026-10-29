@@ -6843,6 +6843,19 @@ test('a canonical Runcrate restore marks its auth trio for child retargets', asy
   expect(canonical.OPENAI_AUTH_HEADER_VALUE).toBe('saved-auth-secret')
   expect(canonical.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBe('1')
 
+  // An intermediate canonical relaunch receives the trio through processEnv
+  // but must keep its profile-managed provenance.
+  const relaunched = await buildLaunchEnv({
+    profile: 'openai',
+    persisted,
+    goal: 'coding',
+    processEnv: canonical,
+  })
+  expect(relaunched.OPENAI_AUTH_HEADER).toBe('X-Proxy-Auth')
+  expect(relaunched.OPENAI_AUTH_SCHEME).toBe('raw')
+  expect(relaunched.OPENAI_AUTH_HEADER_VALUE).toBe('saved-auth-secret')
+  expect(relaunched.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBe('1')
+
   // The child inherits the marker with the canonical env, so its retarget can
   // drop the saved trio without guessing from the values.
   const child = await buildLaunchEnv({
@@ -6850,7 +6863,7 @@ test('a canonical Runcrate restore marks its auth trio for child retargets', asy
     persisted,
     goal: 'coding',
     processEnv: {
-      ...canonical,
+      ...relaunched,
       OPENAI_BASE_URL: 'https://other-endpoint.example/v1',
     },
   })

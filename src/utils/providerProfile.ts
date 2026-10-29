@@ -2232,18 +2232,24 @@ export async function buildLaunchEnv(options: {
   }
   // Record when the effective trio came wholly from the saved profile. A
   // canonical relaunch then carries this marker to its children, so a later
-  // retarget can drop the saved trio even after its values change.
+  // retarget can drop the saved trio even after its values change. An env that
+  // already inherited the marker is not treating its trio as explicit shell
+  // auth, even though the values arrive through processEnv.
+  const inheritedOpenAIAuthProvenance =
+    processEnv[PROFILE_OPENAI_AUTH_MANAGED] === '1'
   const shellSuppliedOpenAIAuth =
-    !!processEnv.OPENAI_AUTH_HEADER ||
-    processEnv.OPENAI_AUTH_SCHEME === 'bearer' ||
-    processEnv.OPENAI_AUTH_SCHEME === 'raw' ||
-    !!sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE)
+    !inheritedOpenAIAuthProvenance &&
+    (!!processEnv.OPENAI_AUTH_HEADER ||
+      processEnv.OPENAI_AUTH_SCHEME === 'bearer' ||
+      processEnv.OPENAI_AUTH_SCHEME === 'raw' ||
+      !!sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE))
   if (
-    usePersistedOpenAIConfig &&
-    !shellSuppliedOpenAIAuth &&
-    (persistedOpenAIAuthHeader ||
-      persistedOpenAIAuthScheme ||
-      persistedOpenAIAuthHeaderValue)
+    inheritedOpenAIAuthProvenance ||
+    (usePersistedOpenAIConfig &&
+      !shellSuppliedOpenAIAuth &&
+      (persistedOpenAIAuthHeader ||
+        persistedOpenAIAuthScheme ||
+        persistedOpenAIAuthHeaderValue))
   ) {
     env[PROFILE_OPENAI_AUTH_MANAGED] = '1'
   }
@@ -2422,6 +2428,7 @@ export async function buildLaunchEnv(options: {
       delete env.OPENAI_AUTH_HEADER
       delete env.OPENAI_AUTH_SCHEME
       delete env.OPENAI_AUTH_HEADER_VALUE
+      delete env[PROFILE_OPENAI_AUTH_MANAGED]
       if (usePersistedOpenAIConfig) {
         if (persistedOpenAIAuthHeader) {
           env.OPENAI_AUTH_HEADER = persistedOpenAIAuthHeader
