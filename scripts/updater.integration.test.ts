@@ -71,6 +71,25 @@ async function waitFor(predicate: () => boolean) {
 
 // Child deadlines are 15 seconds; allow time for barriers, assertions and teardown.
 describe('published updater under Node', () => {
+  test('bounds fixture startup when cleanup removes the readiness directory', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'updater-readiness-'))
+    rmSync(root, { recursive: true })
+    // The lifecycle worker cannot publish a heartbeat after cleanup. The manager
+    // must reach its own 12-second deadline before this 15-second outer watchdog.
+    const child = Bun.spawn(['node', join(import.meta.dir, 'fixtures/updater-process.mjs'), 'timeout', '0'], {
+      cwd: repo,
+      env: { ...process.env, NODE_OPTIONS: '', UPDATER_TEST_ROOT: root },
+      stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', timeout: 15_000,
+    })
+    try {
+      expect(await child.exited).toBe(124)
+    } finally {
+      if (child.exitCode === null) child.kill()
+      await child.exited
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 20_000)
+
   test('reports the installed version as current without installing', async () => {
     const f = fixture()
     try {

@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url'
 const [mode, status, output] = process.argv.slice(2)
 const root = process.env.UPDATER_TEST_ROOT
 const released = () => fs.existsSync(path.join(root, 'release'))
+// Cover startup too: cleanup can remove the heartbeat before we observe it.
+// Do not keep completed result-mode commands alive just for this safety timer.
+const deadline = setTimeout(() => { process.exit(124) }, 12_000).unref()
 
 function hold(tick) {
-  const deadline = setTimeout(() => { process.exit(124) }, 12_000)
   const timer = setInterval(() => {
     if (released()) {
       clearInterval(timer)
