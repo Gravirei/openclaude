@@ -179,6 +179,14 @@ npm view @twigpine/openclaude dist-tags
 npm install -g @twigpine/openclaude@latest
 ```
 
+**Update-lock recovery:** Global updates use `.update.lock` in the OpenClaude
+configuration directory (`OPENCLAUDE_CONFIG_DIR`, or `~/.openclaude`). Existing
+locks are never removed automatically, even when old, to avoid overlapping
+package-manager installations. If an update was interrupted, first confirm that
+all OpenClaude update processes and their package-manager children have stopped;
+then remove only `.update.lock` from that directory and retry `openclaude update`.
+Do not remove the lock while an update is running.
+
 ### Start
 
 ```bash

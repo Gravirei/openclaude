@@ -202,7 +202,7 @@ function Update({ onDone, force, target }: UpdateProps): React.ReactNode {
             setState({
               type: 'error',
               message:
-                'Another update is already in progress. Try again in a moment.',
+                'Could not acquire the update lock. Wait for any active update to finish; for interrupted updates, see the README update-lock recovery instructions.',
             })
             break
           default:

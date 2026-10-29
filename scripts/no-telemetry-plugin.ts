@@ -7,7 +7,6 @@
  * Analytics and telemetry modules have been replaced at the source level and
  * no longer need build-time stubs. This plugin now only covers:
  *
- *   - Auto-updater (phones home to GCS + npm)
  *   - Plugin fetch telemetry
  *   - Transcript / feedback sharing
  *   - Internal employee logging

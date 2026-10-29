@@ -188,9 +188,6 @@ export function shouldSkipVersion(targetVersion: string): boolean {
   return shouldSkip
 }
 
-// Lock file for auto-updater to prevent concurrent updates
-const LOCK_TIMEOUT_MS = 5 * 60 * 1000 // 5 minute timeout for locks
-
 /**
  * Get the path to the lock file
  * This is a function to ensure it's evaluated at runtime after test setup
@@ -206,97 +203,29 @@ export function getLockFilePath(): string {
 async function acquireLock(): Promise<boolean> {
   const fs = getFsImplementation()
   const lockPath = getLockFilePath()
-  const tempLockPath = `${lockPath}.${process.pid}.${Date.now()}.tmp`
-
-  // Check for existing lock
+  // Exclusive creation is the ownership boundary. Never reclaim an existing
+  // lock: a separate liveness/age check followed by unlink can remove a new
+  // owner's lock, and a slow installation may still be active at any age.
   try {
-    const stats = await fs.stat(lockPath)
-    const age = Date.now() - stats.mtimeMs
-    if (age < LOCK_TIMEOUT_MS) {
-      // Lock is fresh - check if the owning process is still alive
-      const lockData = await fs.readFile(lockPath, { encoding: 'utf8' }).catch(() => null)
-      const lockPid = lockData ? parseInt(lockData.trim(), 10) : NaN
-      if (!isNaN(lockPid) && isProcessAlive(lockPid)) {
-        return false
-      }
-      // Process is dead, treat as stale and continue to recovery
-    }
-    // Lock is stale or owner dead - attempt recovery
-    try {
-      const recheck = await fs.stat(lockPath)
-      if (Date.now() - recheck.mtimeMs < LOCK_TIMEOUT_MS) {
-        // Another process may have just acquired it
-        const lockData = await fs.readFile(lockPath, { encoding: 'utf8' }).catch(() => null)
-        const lockPid = lockData ? parseInt(lockData.trim(), 10) : NaN
-        if (!isNaN(lockPid) && isProcessAlive(lockPid)) {
-          return false
-        }
-      }
-      await fs.unlink(lockPath)
-    } catch (err) {
-      if (!isENOENT(err)) {
-        logError(err as Error)
-        return false
-      }
-    }
-  } catch (err) {
-    if (!isENOENT(err)) {
-      logError(err as Error)
-      return false
-    }
-    // ENOENT: no lock file, proceed to create one
-  }
-
-  // Create lock file atomically: write to unique temp file, then rename
-  // This avoids TOCTOU between stat/unlink and create
-  try {
-    await writeFile(tempLockPath, `${process.pid}`, {
-      encoding: 'utf8',
-      flag: 'wx',
-    })
-    await fs.rename(tempLockPath, lockPath)
+    await writeFile(lockPath, `${process.pid}`, { encoding: 'utf8', flag: 'wx' })
     return true
   } catch (err) {
-    // Clean up temp file on error
-    await fs.unlink(tempLockPath).catch(() => {})
-    const code = getErrnoCode(err)
-    if (code === 'EEXIST') {
-      return false
-    }
-    if (code === 'ENOENT') {
+    if (isENOENT(err)) {
       try {
         await fs.mkdir(getClaudeConfigHomeDir())
-        await writeFile(tempLockPath, `${process.pid}`, {
-          encoding: 'utf8',
-          flag: 'wx',
-        })
-        await fs.rename(tempLockPath, lockPath)
+        await writeFile(lockPath, `${process.pid}`, { encoding: 'utf8', flag: 'wx' })
         return true
-      } catch (mkdirErr) {
-        await fs.unlink(tempLockPath).catch(() => {})
-        if (getErrnoCode(mkdirErr) === 'EEXIST') {
-          return false
+      } catch (retryError) {
+        if (getErrnoCode(retryError) !== 'EEXIST') {
+          logError(retryError as Error)
         }
-        logError(mkdirErr as Error)
         return false
       }
     }
-    logError(err as Error)
+    if (getErrnoCode(err) !== 'EEXIST') {
+      logError(err as Error)
+    }
     return false
-  }
-}
-
-/**
- * Check if a process is alive by sending signal 0
- */
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (err) {
-    const code = getErrnoCode(err)
-    // ESRCH = no such process, EPERM = process exists but we can't signal it
-    return code !== 'ESRCH'
   }
 }
 
@@ -319,9 +248,11 @@ async function releaseLock(): Promise<void> {
   }
 }
 
-async function getInstallationPrefix(): Promise<string | null> {
+async function getInstallationPrefix(
+  packageManager: 'npm' | 'bun',
+): Promise<string | null> {
   // Run from home directory to avoid reading project-level .npmrc/.bunfig.toml
-  const isBun = env.isRunningWithBun()
+  const isBun = packageManager === 'bun'
   let prefixResult: Awaited<ReturnType<typeof execFileNoThrowWithCwd>> | null =
     null
   if (isBun) {
@@ -342,12 +273,14 @@ async function getInstallationPrefix(): Promise<string | null> {
   return prefixResult.stdout.trim()
 }
 
-export async function checkGlobalInstallPermissions(): Promise<{
+export async function checkGlobalInstallPermissions(
+  packageManager: 'npm' | 'bun' = env.isRunningWithBun() ? 'bun' : 'npm',
+): Promise<{
   hasPermissions: boolean
   npmPrefix: string | null
 }> {
   try {
-    const prefix = await getInstallationPrefix()
+    const prefix = await getInstallationPrefix(packageManager)
     if (!prefix) {
       return { hasPermissions: false, npmPrefix: null }
     }
@@ -543,7 +476,7 @@ export async function installGlobalPackage(
 ): Promise<InstallStatus> {
   if (!(await acquireLock())) {
     logError(
-      new AutoUpdaterError('Another process is currently installing an update'),
+      new AutoUpdaterError(`Update lock already exists or could not be created: ${getLockFilePath()}`),
     )
     // Log the lock contention
     logEvent('tengu_auto_updater_lock_contention', {
@@ -590,7 +523,7 @@ To fix this issue:
     // for those managers. pnpm/yarn manage their own global store, so we let the
     // install command itself surface any permission error there.
     if (packageManager === 'npm' || packageManager === 'bun') {
-      const { hasPermissions } = await checkGlobalInstallPermissions()
+      const { hasPermissions } = await checkGlobalInstallPermissions(packageManager)
       if (!hasPermissions) {
         return 'no_permissions'
       }

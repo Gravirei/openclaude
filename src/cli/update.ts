@@ -453,9 +453,9 @@ export async function update() {
       break
     case 'in_progress':
       process.stderr.write(
-        'Error: Another instance is currently performing an update\n',
+        'Error: Could not acquire the update lock\n',
       )
-      process.stderr.write('Please wait and try again later\n')
+      process.stderr.write('Wait for any active update to finish. For interrupted updates, see the README update-lock recovery instructions.\n')
       await gracefulShutdown(1)
       break
   }
