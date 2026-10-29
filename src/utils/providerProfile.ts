@@ -2359,7 +2359,34 @@ export async function buildLaunchEnv(options: {
         env[persistedCredential.envVar] = persistedCredential.value
       }
     }
-    if (!retargetedRuncrateProfile) {
+    if (retargetedRuncrateProfile) {
+      // A retargeted launch keeps no saved custom-auth trio: it belongs to the
+      // endpoint the profile was saved for. A pane may also inherit those
+      // values, so only a shell value that differs from the saved one is
+      // treated as an explicit credential for the new endpoint.
+      delete env.OPENAI_AUTH_HEADER
+      delete env.OPENAI_AUTH_SCHEME
+      delete env.OPENAI_AUTH_HEADER_VALUE
+      const shellAuthHeader = processEnv.OPENAI_AUTH_HEADER
+      const shellAuthScheme = processEnv.OPENAI_AUTH_SCHEME
+      const shellAuthHeaderValue = sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE)
+      const shellAuthInheritedFromProfile =
+        (!!shellAuthHeader && shellAuthHeader === persistedOpenAIAuthHeader) ||
+        (!!shellAuthScheme && shellAuthScheme === persistedOpenAIAuthScheme) ||
+        (!!shellAuthHeaderValue &&
+          shellAuthHeaderValue === persistedOpenAIAuthHeaderValue)
+      if (!shellAuthInheritedFromProfile) {
+        if (shellAuthHeader) {
+          env.OPENAI_AUTH_HEADER = shellAuthHeader
+        }
+        if (shellAuthScheme === 'bearer' || shellAuthScheme === 'raw') {
+          env.OPENAI_AUTH_SCHEME = shellAuthScheme
+        }
+        if (shellAuthHeaderValue) {
+          env.OPENAI_AUTH_HEADER_VALUE = shellAuthHeaderValue
+        }
+      }
+    } else {
       // Custom authentication is a second credential channel, not just transport
       // metadata: the OpenAI shim sends OPENAI_AUTH_HEADER_VALUE as the request
       // credential whenever OPENAI_AUTH_HEADER names a header. The selections

@@ -6713,3 +6713,59 @@ test('a retargeted Runcrate launch never falls back to the persisted key', async
   // profile's saved value may follow the retargeted endpoint.
   expect(env.ANTHROPIC_CUSTOM_HEADERS).toBeUndefined()
 })
+
+test('a retargeted Runcrate launch drops the saved custom-auth trio', async () => {
+  const { buildStartupEnvFromProfile } = await import('./providerProfile.js')
+  const persisted = JSON.parse(JSON.stringify({
+    profile: 'openai',
+    env: {
+      CLAUDE_CODE_PROVIDER_ROUTE_ID: 'runcrate',
+      OPENAI_BASE_URL: 'https://saved-runcrate.example/v1',
+      OPENAI_MODEL: 'deepseek-ai/DeepSeek-V4.1-Flash',
+      RUNCRATE_API_KEY: 'saved-runcrate-key',
+      OPENAI_API_KEY: 'saved-runcrate-key',
+      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'saved-auth-secret',
+    },
+    createdAt: new Date().toISOString(),
+  }))
+  const retargetBaseUrl = 'https://other-endpoint.example/v1'
+  const retargeted = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: { OPENAI_BASE_URL: retargetBaseUrl },
+  })
+  // Values saved for the Runcrate endpoint never follow the retarget.
+  expect(retargeted.OPENAI_AUTH_HEADER).toBeUndefined()
+  expect(retargeted.OPENAI_AUTH_SCHEME).toBeUndefined()
+  expect(retargeted.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+
+  // A pane that inherited the same trio from the profile must not forward it
+  // either, even though it arrives through processEnv.
+  const inherited = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: {
+      OPENAI_BASE_URL: retargetBaseUrl,
+      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'saved-auth-secret',
+    },
+  })
+  expect(inherited.OPENAI_AUTH_HEADER).toBeUndefined()
+  expect(inherited.OPENAI_AUTH_SCHEME).toBeUndefined()
+  expect(inherited.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
+
+  // An explicitly supplied shell trio still follows the new endpoint.
+  const explicit = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: {
+      OPENAI_BASE_URL: retargetBaseUrl,
+      OPENAI_AUTH_HEADER: 'X-Shell-Auth',
+      OPENAI_AUTH_SCHEME: 'bearer',
+      OPENAI_AUTH_HEADER_VALUE: 'shell-auth-secret',
+    },
+  })
+  expect(explicit.OPENAI_AUTH_HEADER).toBe('X-Shell-Auth')
+  expect(explicit.OPENAI_AUTH_SCHEME).toBe('bearer')
+  expect(explicit.OPENAI_AUTH_HEADER_VALUE).toBe('shell-auth-secret')
+})
