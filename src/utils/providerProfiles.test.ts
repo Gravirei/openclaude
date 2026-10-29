@@ -6755,6 +6755,21 @@ test('a retargeted Runcrate launch drops the saved custom-auth trio', async () =
   expect(inherited.OPENAI_AUTH_SCHEME).toBeUndefined()
   expect(inherited.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
 
+  // Changing only the secret is an explicit shell credential, even though the
+  // header name and scheme still match the saved profile.
+  const changedSecret = await buildStartupEnvFromProfile({
+    persisted,
+    processEnv: {
+      OPENAI_BASE_URL: retargetBaseUrl,
+      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'raw',
+      OPENAI_AUTH_HEADER_VALUE: 'new-shell-secret',
+    },
+  })
+  expect(changedSecret.OPENAI_AUTH_HEADER).toBe('X-Proxy-Auth')
+  expect(changedSecret.OPENAI_AUTH_SCHEME).toBe('raw')
+  expect(changedSecret.OPENAI_AUTH_HEADER_VALUE).toBe('new-shell-secret')
+
   // An explicitly supplied shell trio still follows the new endpoint.
   const explicit = await buildStartupEnvFromProfile({
     persisted,

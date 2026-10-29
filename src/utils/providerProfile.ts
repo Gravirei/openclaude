@@ -2370,11 +2370,12 @@ export async function buildLaunchEnv(options: {
       const shellAuthHeader = processEnv.OPENAI_AUTH_HEADER
       const shellAuthScheme = processEnv.OPENAI_AUTH_SCHEME
       const shellAuthHeaderValue = sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE)
+      // Only the credential value identifies an inherited trio: a pane may keep
+      // the saved header name and scheme while supplying a new secret, and that
+      // explicit value must follow the retargeted endpoint.
       const shellAuthInheritedFromProfile =
-        (!!shellAuthHeader && shellAuthHeader === persistedOpenAIAuthHeader) ||
-        (!!shellAuthScheme && shellAuthScheme === persistedOpenAIAuthScheme) ||
-        (!!shellAuthHeaderValue &&
-          shellAuthHeaderValue === persistedOpenAIAuthHeaderValue)
+        !!shellAuthHeaderValue &&
+        shellAuthHeaderValue === persistedOpenAIAuthHeaderValue
       if (!shellAuthInheritedFromProfile) {
         if (shellAuthHeader) {
           env.OPENAI_AUTH_HEADER = shellAuthHeader
