@@ -25,6 +25,7 @@ const originalFetch = globalThis.fetch
 const RESTORED_KEYS = [
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ENV_APPLIED_ID',
+  'CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED',
   'CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256',
   'CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256',
   'CLAUDE_CODE_PROVIDER_ROUTE_ID',
@@ -410,6 +411,34 @@ describe('applyProviderProfileToProcessEnv', () => {
     expect(process.env.CLAUDE_CODE_USE_OPENAI).toBe('1')
     expect(process.env.OPENAI_BASE_URL).toBe('https://models.example.com/v1')
     expect(process.env.CLAUDE_CODE_PROVIDER_ROUTE_ID).toBe('ollama')
+  }, 20_000)
+
+  test('marks a profile-managed OPENAI_AUTH_* trio for retarget provenance', async () => {
+    const { applyProviderProfileToProcessEnv } =
+      await importFreshProviderProfileModules()
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({
+        provider: 'openai',
+        apiKey: 'saved-key',
+        authHeader: 'X-Proxy-Key',
+        authScheme: 'raw',
+        authHeaderValue: 'saved-secret',
+      }),
+    )
+
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBe('1')
+    expect(process.env.OPENAI_AUTH_HEADER).toBe('X-Proxy-Key')
+    expect(process.env.OPENAI_AUTH_SCHEME).toBe('raw')
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBe('saved-secret')
+
+    applyProviderProfileToProcessEnv(
+      buildProfile({ provider: 'openai', apiKey: 'saved-key' }),
+    )
+    expect(process.env.CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_SCHEME).toBeUndefined()
+    expect(process.env.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
   }, 20_000)
 
   test('LLMTR profile clears an ambient dedicated key so its saved key wins', async () => {
@@ -6740,23 +6769,26 @@ test('a retargeted Runcrate launch drops the saved custom-auth trio', async () =
   expect(retargeted.OPENAI_AUTH_SCHEME).toBeUndefined()
   expect(retargeted.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
 
-  // A pane that inherited the same trio from the profile must not forward it
-  // either, even though it arrives through processEnv.
+  // A pane that inherited the trio from a profile must not forward it, even
+  // when the profile's saved secret has since changed. Provenance comes from
+  // the managed marker, not from comparing values.
   const inherited = await buildStartupEnvFromProfile({
     persisted,
     processEnv: {
       OPENAI_BASE_URL: retargetBaseUrl,
-      OPENAI_AUTH_HEADER: 'X-Proxy-Auth',
-      OPENAI_AUTH_SCHEME: 'raw',
-      OPENAI_AUTH_HEADER_VALUE: 'saved-auth-secret',
+      CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED: '1',
+      OPENAI_AUTH_HEADER: 'X-Old-Proxy-Auth',
+      OPENAI_AUTH_SCHEME: 'bearer',
+      OPENAI_AUTH_HEADER_VALUE: 'old-profile-secret',
     },
   })
   expect(inherited.OPENAI_AUTH_HEADER).toBeUndefined()
   expect(inherited.OPENAI_AUTH_SCHEME).toBeUndefined()
   expect(inherited.OPENAI_AUTH_HEADER_VALUE).toBeUndefined()
 
-  // Changing only the secret is an explicit shell credential, even though the
-  // header name and scheme still match the saved profile.
+  // Changing only the secret is an explicit shell credential when no profile
+  // marker is present, even though the header name and scheme match the saved
+  // profile.
   const changedSecret = await buildStartupEnvFromProfile({
     persisted,
     processEnv: {

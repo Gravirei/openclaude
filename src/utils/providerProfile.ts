@@ -69,6 +69,12 @@ export const PROFILE_ORCAROUTER_KEY_SHA256 =
   'CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256'
 export const PROFILE_RUNCRATE_KEY_SHA256 =
   'CLAUDE_CODE_PROVIDER_PROFILE_RUNCRATE_KEY_SHA256'
+// Provenance marker for the OPENAI_AUTH_* trio. A child inherits this with the
+// trio, so a retarget can tell profile-managed auth from an explicit shell
+// credential without comparing values that may have changed since the profile
+// was saved.
+export const PROFILE_OPENAI_AUTH_MANAGED =
+  'CLAUDE_CODE_PROVIDER_PROFILE_OPENAI_AUTH_MANAGED'
 
 // Credential-keyed fingerprint for provenance tracking, not password storage:
 // it only answers "did this env key come from the saved profile", and must stay
@@ -105,6 +111,7 @@ const PROFILE_ENV_KEYS = [
   'CLAUDE_CODE_USE_GEMINI_VERTEX',
   PROFILE_ORCAROUTER_KEY_SHA256,
   PROFILE_RUNCRATE_KEY_SHA256,
+  PROFILE_OPENAI_AUTH_MANAGED,
   'CLAUDE_CODE_USE_OPENAI',
   'CLAUDE_CODE_USE_GITHUB',
   'CLAUDE_CODE_USE_GEMINI',
@@ -2361,30 +2368,28 @@ export async function buildLaunchEnv(options: {
     }
     if (retargetedRuncrateProfile) {
       // A retargeted launch keeps no saved custom-auth trio: it belongs to the
-      // endpoint the profile was saved for. A pane may also inherit those
-      // values, so only a shell value that differs from the saved one is
-      // treated as an explicit credential for the new endpoint.
+      // endpoint the profile was saved for. Provenance comes from the marker a
+      // profile application wrote, not from the values themselves: the saved
+      // secret may have changed since this env was inherited. Only an env
+      // without the marker carries an explicit shell credential for the new
+      // endpoint.
       delete env.OPENAI_AUTH_HEADER
       delete env.OPENAI_AUTH_SCHEME
       delete env.OPENAI_AUTH_HEADER_VALUE
-      const shellAuthHeader = processEnv.OPENAI_AUTH_HEADER
-      const shellAuthScheme = processEnv.OPENAI_AUTH_SCHEME
-      const shellAuthHeaderValue = sanitizeApiKey(processEnv.OPENAI_AUTH_HEADER_VALUE)
-      // Only the credential value identifies an inherited trio: a pane may keep
-      // the saved header name and scheme while supplying a new secret, and that
-      // explicit value must follow the retargeted endpoint.
       const shellAuthInheritedFromProfile =
-        !!shellAuthHeaderValue &&
-        shellAuthHeaderValue === persistedOpenAIAuthHeaderValue
+        processEnv[PROFILE_OPENAI_AUTH_MANAGED] === '1'
       if (!shellAuthInheritedFromProfile) {
-        if (shellAuthHeader) {
-          env.OPENAI_AUTH_HEADER = shellAuthHeader
+        if (processEnv.OPENAI_AUTH_HEADER) {
+          env.OPENAI_AUTH_HEADER = processEnv.OPENAI_AUTH_HEADER
         }
-        if (shellAuthScheme === 'bearer' || shellAuthScheme === 'raw') {
-          env.OPENAI_AUTH_SCHEME = shellAuthScheme
+        if (
+          processEnv.OPENAI_AUTH_SCHEME === 'bearer' ||
+          processEnv.OPENAI_AUTH_SCHEME === 'raw'
+        ) {
+          env.OPENAI_AUTH_SCHEME = processEnv.OPENAI_AUTH_SCHEME
         }
-        if (shellAuthHeaderValue) {
-          env.OPENAI_AUTH_HEADER_VALUE = shellAuthHeaderValue
+        if (processEnv.OPENAI_AUTH_HEADER_VALUE) {
+          env.OPENAI_AUTH_HEADER_VALUE = processEnv.OPENAI_AUTH_HEADER_VALUE
         }
       }
     } else {
@@ -2408,6 +2413,15 @@ export async function buildLaunchEnv(options: {
         }
         if (persistedOpenAIAuthHeaderValue) {
           env.OPENAI_AUTH_HEADER_VALUE = persistedOpenAIAuthHeaderValue
+        }
+        if (
+          persistedOpenAIAuthHeader ||
+          persistedOpenAIAuthScheme ||
+          persistedOpenAIAuthHeaderValue
+        ) {
+          // Record that this trio came from the profile so a descendant
+          // retarget can drop it even after the saved values change.
+          env[PROFILE_OPENAI_AUTH_MANAGED] = '1'
         }
       }
     }

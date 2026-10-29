@@ -43,6 +43,7 @@ import {
   orcarouterCredentialFingerprint,
   PROFILE_ORCAROUTER_KEY_SHA256,
   PROFILE_RUNCRATE_KEY_SHA256,
+  PROFILE_OPENAI_AUTH_MANAGED,
   runcrateCredentialFingerprint,
   deleteProfileFile,
   type ProfileFileLocation,
@@ -1611,6 +1612,15 @@ export function applyProviderProfileToProcessEnv(
   Object.assign(process.env, nextEnv)
   process.env[PROFILE_ENV_APPLIED_FLAG] = '1'
   process.env[PROFILE_ENV_APPLIED_ID] = profile.id
+  if (
+    profile.authHeader ||
+    profile.authScheme ||
+    profile.authHeaderValue
+  ) {
+    // Mark the custom-auth trio as profile-managed so a retargeted launch can
+    // discard it without depending on the saved values staying unchanged.
+    process.env[PROFILE_OPENAI_AUTH_MANAGED] = '1'
+  }
   rememberManagedOrcarouterCredential(profile)
   rememberManagedRuncrateCredential(profile)
 }
