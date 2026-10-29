@@ -53,6 +53,9 @@ function fixture(owner = 'npm') {
         if (child.exitCode === null) child.kill()
         await child.exited
       }
+      if (existsSync(join(root, 'lifecycle-ready'))) {
+        await waitFor(() => existsSync(join(root, 'lifecycle-exited')))
+      }
       rmSync(root, { recursive: true, force: true })
     },
   }
@@ -80,11 +83,11 @@ describe('published updater under Node', () => {
     } finally { await f.close() }
   }, 20_000)
 
-  test.each(['npm', 'bun'])('installs the selected stable version with the %s owner and releases the lock', async owner => {
+  test.each(['npm', 'bun'].flatMap(owner => [false, true].map(windows => ({ owner, windows }))))('installs the selected stable version with $owner (Windows wrappers: $windows) and releases the lock', async ({ owner, windows }) => {
     const f = fixture(owner)
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        const result = await f.start()
+        const result = await f.start(windows ? { UPDATER_TEST_WINDOWS_WRAPPERS: '1' } : {})
         expect(result, JSON.stringify(result)).toMatchObject({ code: 0 })
         expect(result.stdout).toContain(`to version ${targetVersion}`)
         expect(existsSync(f.lock)).toBe(false)
@@ -96,6 +99,7 @@ describe('published updater under Node', () => {
         [owner, [owner === 'npm' ? 'install' : 'add', '-g', `@twigpine/openclaude@${targetVersion}`]],
       ])
       if (owner === 'bun') expect(existsSync(join(f.root, 'npm-prefix'))).toBe(false)
+      if (windows) expect(events.some(e => e.type === 'command' && e.file === 'cmd.exe')).toBe(true)
     } finally { await f.close() }
   }, 40_000)
 
@@ -138,6 +142,26 @@ describe('published updater under Node', () => {
       expect((await f.start({ UPDATER_TEST_INSTALL_EXIT: '1' })).code).toBe(1)
       expect(existsSync(f.lock)).toBe(false)
       expect((await f.start()).code).toBe(0)
+    } finally { await f.close() }
+  }, 40_000)
+
+  test.each(['timeout', 'output-limit'])('retains the lock while lifecycle work survives an installer %s', async failure => {
+    const f = fixture()
+    try {
+      const first = await f.start({ UPDATER_TEST_UNCERTAIN: failure })
+      expect(first.code, first.stderr).toBe(1)
+      expect(first.stderr).toContain('Failed to install update')
+      const heartbeat = () => existsSync(join(f.root, 'heartbeat')) ? readFileSync(join(f.root, 'heartbeat'), 'utf8').length : 0
+      const before = heartbeat()
+      await waitFor(() => heartbeat() > before)
+      expect(existsSync(f.lock)).toBe(true)
+      const install = f.events().filter(e => e.type === 'install')
+      expect(install).toHaveLength(1)
+      expect(readFileSync(f.lock, 'utf8')).toBe(String(install[0]!.pid))
+      const second = await f.start()
+      expect(second.code).toBe(1)
+      expect(second.stderr).toContain('Could not acquire the update lock')
+      expect(f.events().filter(e => e.type === 'install')).toHaveLength(1)
     } finally { await f.close() }
   }, 40_000)
 })

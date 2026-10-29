@@ -487,6 +487,7 @@ export async function installGlobalPackage(
     return 'in_progress'
   }
 
+  let releaseLockOnCompletion = true
   try {
     await removeClaudeAliasesFromShellConfigs()
 
@@ -541,6 +542,15 @@ To fix this issue:
       getGlobalInstallArgs(packageManager, packageSpec),
       { cwd: homedir() },
     )
+    // These errors can resolve before the manager and its lifecycle children have
+    // stopped. Keep ownership for the documented manual recovery procedure.
+    if (
+      installResult.error === 'maxBuffer exceeded' ||
+      installResult.error?.startsWith('Command timed out after ')
+    ) {
+      releaseLockOnCompletion = false
+      logForDebugging('Auto-updater: installer termination uncertain; retaining update lock')
+    }
     if (installResult.code !== 0) {
       const error = new AutoUpdaterError(
         `Failed to install new version of claude: ${installResult.stdout} ${installResult.stderr}`,
@@ -557,8 +567,9 @@ To fix this issue:
 
     return 'success'
   } finally {
-    // Ensure we always release the lock
-    await releaseLock()
+    if (releaseLockOnCompletion) {
+      await releaseLock()
+    }
   }
 }
 

@@ -5,7 +5,10 @@ import fs from 'node:fs'
 import promises from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { syncBuiltinESMExports } from 'node:module'
+import http from 'node:http'
+import https from 'node:https'
+import { createRequire, syncBuiltinESMExports } from 'node:module'
+import { fileURLToPath } from 'node:url'
 
 const root = process.env.UPDATER_TEST_ROOT
 const owner = process.env.UPDATER_TEST_OWNER || 'npm'
@@ -15,10 +18,51 @@ process.argv[1] = owner === 'bun'
   ? path.join(root, 'npm/bun/install/global/node_modules/@twigpine/openclaude/cli.mjs')
   : path.join(root, 'npm/node_modules/@twigpine/openclaude/cli.mjs')
 
+// Exercise the real Windows parser even on POSIX; this preload is process-local.
+let windowsParse
+if (process.env.UPDATER_TEST_WINDOWS_WRAPPERS) {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')
+  try {
+    Object.defineProperty(process, 'platform', { value: 'win32' })
+    windowsParse = createRequire(import.meta.url)('cross-spawn')._parse
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+  }
+}
+
+// A missed command must fail the test instead of reaching a live registry.
+http.request = https.request = () => { throw new Error('Unexpected updater HTTP request') }
+
+const setTimeout = globalThis.setTimeout
+let shortenInstallTimeout = false
+globalThis.setTimeout = (callback, delay, ...args) => {
+  if (shortenInstallTimeout && delay === 600_000) {
+    shortenInstallTimeout = false
+    return setTimeout(callback, 500, ...args)
+  }
+  return setTimeout(callback, delay, ...args)
+}
+
 const spawn = childProcess.spawn
 childProcess.spawn = (file, args = [], options = {}) => {
-  const command = [file, ...args].join(' ')
+  const availability = /which (npm|bun)$/.exec([file, ...args].join(' '))
+  if (windowsParse && file === 'npm') {
+    const parsed = windowsParse(file, args, options)
+    file = parsed.command
+    args = parsed.args
+    options = parsed.options
+  } else if (windowsParse && availability) {
+    file = 'cmd.exe'
+    args = ['/d', '/s', '/c', `"where.exe ${availability[1]}"`]
+  }
   log({ type: 'command', file, args })
+  if (path.win32.basename(file).toLowerCase() === 'cmd.exe' && args.includes('/c')) {
+    // Only fixture-owned, whitespace-free arguments are admitted below. Decode
+    // cmd quoting/caret layers; do not execute or interpret arbitrary shell input.
+    const words = args.at(-1).replace(/["^]/g, '').trim().split(/\s+/)
+    if (['npm', 'bun', 'where.exe'].includes(words[0])) [file, ...args] = words
+  }
+  const command = [file, ...args].join(' ')
   let output = ''
   let code = 0
   let install = false
@@ -37,13 +81,16 @@ childProcess.spawn = (file, args = [], options = {}) => {
     install = true
     log({ type: 'install', file, args, pid: process.pid })
     code = Number(process.env.UPDATER_TEST_INSTALL_EXIT || 0)
+    shortenInstallTimeout = process.env.UPDATER_TEST_UNCERTAIN === 'timeout'
   } else {
     code = 1 // Never run incidental diagnostics or completion commands on the host.
   }
-  const script = install && process.env.UPDATER_TEST_HOLD
-    ? `const fs=require('node:fs'); setTimeout(()=>process.exit(124),12000); const t=setInterval(()=>{if(fs.existsSync(${JSON.stringify(path.join(root, 'release'))})){clearInterval(t);process.exit(${code})}},10)`
-    : `process.stdout.write(${JSON.stringify(output)});process.exit(${code})`
-  return spawn(process.execPath, ['-e', script], { ...options, shell: false })
+  const mode = install
+    ? process.env.UPDATER_TEST_UNCERTAIN || (process.env.UPDATER_TEST_HOLD ? 'hold' : 'result')
+    : 'result'
+  return spawn(process.execPath, [
+    fileURLToPath(new URL('./updater-process.mjs', import.meta.url)), mode, String(code), output,
+  ], { ...options, shell: false, windowsVerbatimArguments: false })
 }
 
 const writeFile = promises.writeFile
