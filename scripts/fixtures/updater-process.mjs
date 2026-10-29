@@ -32,6 +32,8 @@ if (mode === 'result') {
   if (mode === 'timeout' || mode === 'output-limit' || mode.startsWith('SIG')) {
     spawn(process.execPath, [fileURLToPath(import.meta.url), 'lifecycle', '0'], {
       stdio: 'ignore', env: process.env,
+      // Avoid the manager's kill-on-exit job on Windows; retain POSIX grouping.
+      detached: process.platform === 'win32',
     })
     while (!fs.existsSync(path.join(root, 'heartbeat'))) {
       await new Promise(resolve => setTimeout(resolve, 5))
