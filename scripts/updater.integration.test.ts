@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const repo = join(import.meta.dir, '..')
 const cli = join(repo, 'dist/cli.mjs')
@@ -26,7 +27,7 @@ function fixture(owner = 'npm') {
       ? readFileSync(join(root, 'events'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line))
       : [],
     start(extraEnv: Record<string, string> = {}) {
-      const child = Bun.spawn(['node', '--import', preload, cli, 'update'], {
+      const child = Bun.spawn(['node', '--import', pathToFileURL(preload).href, cli, 'update'], {
         cwd: root,
         env: {
           ...process.env,
