@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import type Anthropic from '@anthropic-ai/sdk'
 import { createOpenAIShimClient } from '../../services/api/openaiShim.js'
 import { enableConfigs, getGlobalConfig, saveGlobalConfig, type ProviderProfile } from '../../utils/config.js'
@@ -111,10 +110,10 @@ if (scenario === 'pane' || scenario === 'pane-legacy-origin') {
   } else {
     activate()
     if (scenario === 'pane-legacy-origin') {
-      // An already-running parent issued this format before the child upgraded.
-      // Derive it independently of the current fingerprint implementation.
+      // Pre-upgrade SHA-256 origin for the dummy "selected-key" credential.
+      // Keep this legacy input frozen, independent of current hashing code.
       process.env.CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256 =
-        createHash('sha256').update(profile.apiKey).digest('hex')
+        '4af900489429183b065f3cd1e46c59666642b54bed7c2a5a0c0566970992536e'
     }
     if (option === 'replacement') process.env.ORCAROUTER_API_KEY = 'replacement-shell-key'
   }
