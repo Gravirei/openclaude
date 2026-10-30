@@ -1,5 +1,5 @@
 import { getGeminiVertexProjectId, geminiVertexAdcWillResolveProject } from './geminiAuth.js'
-import { createHmac } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
@@ -88,7 +88,7 @@ function managedCredentialFingerprint(value: string): string {
 }
 
 export function orcarouterCredentialFingerprint(value: string): string {
-  return managedCredentialFingerprint(value)
+  return createHash('sha256').update(sanitizeApiKey(value)?.trim() ?? '').digest('hex')
 }
 
 export function runcrateCredentialFingerprint(value: string): string {

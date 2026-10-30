@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import type Anthropic from '@anthropic-ai/sdk'
 import { createOpenAIShimClient } from '../../services/api/openaiShim.js'
 import { enableConfigs, getGlobalConfig, saveGlobalConfig, type ProviderProfile } from '../../utils/config.js'
@@ -103,18 +104,27 @@ if (scenario === 'shell-switch') {
   }
   finish({ headers, validation: await getProviderValidationError() })
 }
-if (scenario === 'pane') {
+if (scenario === 'pane' || scenario === 'pane-legacy-origin') {
   if (option === 'shell') {
     process.env.ORCAROUTER_API_KEY = 'shell-key'
     activate({ ...profile, apiKey: undefined })
   } else {
     activate()
+    if (scenario === 'pane-legacy-origin') {
+      // An already-running parent issued this format before the child upgraded.
+      // Derive it independently of the current fingerprint implementation.
+      process.env.CLAUDE_CODE_PROVIDER_PROFILE_ORCAROUTER_KEY_SHA256 =
+        createHash('sha256').update(profile.apiKey).digest('hex')
+    }
     if (option === 'replacement') process.env.ORCAROUTER_API_KEY = 'replacement-shell-key'
   }
+  const childScenario = scenario === 'pane-legacy-origin' || option
+    ? 'pane-keyless-child'
+    : 'pane-child'
   // An existing tmux login shell has none of the leader's provider credentials.
   const child = Bun.spawnSync(['/bin/sh', '-c',
     'env ' + buildInheritedEnvVars() + ' ' +
-    quote([process.execPath, import.meta.path, option ? 'pane-keyless-child' : 'pane-child', provider]),
+    quote([process.execPath, import.meta.path, childScenario, provider]),
   ], {
     env: Object.fromEntries([
       'PATH', 'NODE_ENV', 'TMPDIR', 'TMP', 'TEMP', 'CARGO_TARGET_DIR', 'GOCACHE',

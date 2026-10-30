@@ -45,6 +45,14 @@ for (const provider of ['openai', 'orcarouter']) {
       expect(run('pane', provider, option)).toEqual({ initialAuthorization, authorization })
     }, 20_000)
   }
+  for (const [option, initialAuthorization, authorization] of [
+    ['saved', 'Bearer selected-key', null],
+    ['replacement', 'Bearer replacement-shell-key', 'Bearer replacement-shell-key'],
+  ] as const) {
+    test.skipIf(process.platform === 'win32')(`${provider} Orca pre-upgrade pane origin preserves ${option} credential ownership`, () => {
+      expect(run('pane-legacy-origin', provider, option)).toEqual({ initialAuthorization, authorization })
+    }, 20_000)
+  }
 }
 
 for (const phase of ['host-pre', 'host-post']) {
